@@ -74,7 +74,7 @@ jobs:
           python - <<'EOF'
           import snowflake.connector, os, glob
 
-          files = glob.glob("snowflake/config/*.yaml")
+          files = glob.glob("snowflake/cortex/**/*.yaml", recursive=True)
           if not files:
               print("No YAML configs found — skipping.")
               exit(0)
@@ -108,6 +108,7 @@ jobs:
           import snowflake.connector, os, glob
 
           files = glob.glob("app/streamlit/pages/*.py")
+          files += glob.glob("app/streamlit/utils/*.py")
           home = "app/streamlit/Home.py"
           if os.path.exists(home):
               files.append(home)
@@ -127,9 +128,15 @@ jobs:
 
           for f in files:
               fname = os.path.basename(f)
-              print(f"  uploading {fname}")
+              if "/utils/" in f:
+                  dest = "@NEXUS_APP.CORE.APP_STAGE/streamlit/utils/"
+              elif "/pages/" in f:
+                  dest = "@NEXUS_APP.CORE.APP_STAGE/streamlit/pages/"
+              else:
+                  dest = "@NEXUS_APP.CORE.APP_STAGE/streamlit/"
+              print(f"  uploading {fname} → {dest}")
               cs.execute(f"""
-                  PUT file://{f} @NEXUS_APP.CORE.APP_STAGE/streamlit/pages/
+                  PUT file://{f} {dest}
                   OVERWRITE = TRUE AUTO_COMPRESS = FALSE
               """)
 
@@ -204,6 +211,7 @@ jobs:
               return stmts
 
           scripts = sorted(glob.glob("snowflake/setup/*.sql"))
+          scripts += sorted(glob.glob("snowflake/cortex/**/*.sql", recursive=True))
           if not scripts:
               print("No SQL setup scripts found — skipping.")
               exit(0)
