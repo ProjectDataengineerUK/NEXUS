@@ -49,7 +49,7 @@ with st.sidebar:
 
     customers_df = run_query(f"""
         SELECT customer_id, name, segment, lifecycle_stage
-        FROM NEXUS_APP.MART.CUSTOMER_360
+        FROM MART.CUSTOMER_360
         WHERE org_id = '{ORG_ID}'
         ORDER BY arr DESC NULLS LAST
     """)
@@ -73,7 +73,7 @@ with st.sidebar:
 # ─── Carregar dados do cliente ────────────────────────────────────────────────
 
 c360 = run_query(f"""
-    SELECT * FROM NEXUS_APP.MART.CUSTOMER_360
+    SELECT * FROM MART.CUSTOMER_360
     WHERE org_id = '{ORG_ID}' AND customer_id = '{selected_id}'
 """)
 
@@ -185,7 +185,7 @@ with col_uso:
             event_type,
             feature_name,
             COUNT(*)            AS count
-        FROM NEXUS_APP.CORE.PRODUCT_EVENTS
+        FROM CORE.PRODUCT_EVENTS
         WHERE org_id = '{ORG_ID}'
           AND customer_id = '{selected_id}'
           AND occurred_at >= DATEADD('day', -14, CURRENT_TIMESTAMP())
@@ -233,7 +233,7 @@ with col_tickets:
             sentiment_label,
             sla_breach,
             created_at
-        FROM NEXUS_APP.CORE.TICKETS
+        FROM CORE.TICKETS
         WHERE org_id = '{ORG_ID}'
           AND customer_id = '{selected_id}'
         ORDER BY
@@ -274,7 +274,7 @@ with col_sub:
             arr,
             current_period_end  AS renewal_date,
             auto_renewal        AS auto_renew
-        FROM NEXUS_APP.CORE.SUBSCRIPTIONS
+        FROM CORE.SUBSCRIPTIONS
         WHERE org_id = '{ORG_ID}'
           AND customer_id = '{selected_id}'
           AND status = 'active'
@@ -310,7 +310,7 @@ with col_cont:
             end_date,
             status,
             auto_renewal
-        FROM NEXUS_APP.CORE.CONTRACTS
+        FROM CORE.CONTRACTS
         WHERE org_id = '{ORG_ID}'
           AND customer_id = '{selected_id}'
         ORDER BY end_date ASC
@@ -347,7 +347,7 @@ recs_df = run_query(f"""
         confidence_score    AS confidence,
         owner_role          AS owner,
         created_at
-    FROM NEXUS_APP.AI.RECOMMENDATIONS
+    FROM AI.RECOMMENDATIONS
     WHERE org_id = '{ORG_ID}'
       AND entity_id = '{selected_id}'
       AND status = 'pending'

@@ -16,7 +16,7 @@ st.set_page_config(
 )
 
 ORG_ID = "ORG-DEMO-001"
-SEARCH_SERVICE = "NEXUS_APP.AI.DOC_SEARCH"
+SEARCH_SERVICE = "AI.DOC_SEARCH"
 CHAT_MODEL = "mistral-large2"
 
 
@@ -94,7 +94,7 @@ if tab_choice == "💬 Chat com Documentos":
     # Filtro de documento (opcional)
     docs_df = run_query(f"""
         SELECT document_id, document_name, document_type
-        FROM NEXUS_APP.CORE.DOCUMENTS
+        FROM CORE.DOCUMENTS
         WHERE org_id = '{ORG_ID}' AND processing_status = 'completed'
         ORDER BY document_name
     """)
@@ -214,10 +214,10 @@ elif tab_choice == "📚 Biblioteca":
             COUNT(ch.chunk_id)            AS chunks,
             d.summary,
             d.created_at
-        FROM NEXUS_APP.CORE.DOCUMENTS d
-        LEFT JOIN NEXUS_APP.CORE.CUSTOMERS c
+        FROM CORE.DOCUMENTS d
+        LEFT JOIN CORE.CUSTOMERS c
             ON d.entity_id = c.customer_id AND c.org_id = d.org_id
-        LEFT JOIN NEXUS_APP.AI.DOCUMENT_CHUNKS ch
+        LEFT JOIN AI.DOCUMENT_CHUNKS ch
             ON d.document_id = ch.document_id
         WHERE d.org_id = '{ORG_ID}'
         GROUP BY 1,2,3,4,5,6,8,9
@@ -287,7 +287,7 @@ elif tab_choice == "⬆️ Upload":
         # Busca entidades disponíveis para associação
         customers_df = run_query(f"""
             SELECT customer_id AS id, name AS label
-            FROM NEXUS_APP.CORE.CUSTOMERS
+            FROM CORE.CUSTOMERS
             WHERE org_id = '{ORG_ID}'
             ORDER BY name
         """)
@@ -308,7 +308,7 @@ elif tab_choice == "⬆️ Upload":
 
         # Registra como pendente
         session.sql(f"""
-            INSERT INTO NEXUS_APP.CORE.DOCUMENTS
+            INSERT INTO CORE.DOCUMENTS
                 (document_id, org_id, entity_id, entity_type, document_name,
                  document_type, stage_path, processing_status)
             VALUES
@@ -328,7 +328,7 @@ elif tab_choice == "⬆️ Upload":
 
                 session.file.put(
                     tmp_path,
-                    f"@NEXUS_APP.CORE.DOC_STAGE/{doc_id}/",
+                    f"@CORE.DOC_STAGE/{doc_id}/",
                     auto_compress=False,
                     overwrite=True,
                 )
@@ -336,7 +336,7 @@ elif tab_choice == "⬆️ Upload":
 
                 st.write("🧠 Extraindo texto e gerando chunks com Cortex…")
                 result = session.sql(f"""
-                    CALL NEXUS_APP.CORE.SP_PROCESS_DOCUMENT(
+                    CALL CORE.SP_PROCESS_DOCUMENT(
                         '{doc_id}', '{ORG_ID}', '{stage_path}',
                         '{doc_name.replace("'","")}', '{doc_type}',
                         '{entity_id}', '{entity_type}'

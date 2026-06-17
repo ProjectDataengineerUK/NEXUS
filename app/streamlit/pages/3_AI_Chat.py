@@ -18,8 +18,8 @@ st.set_page_config(
 )
 
 ORG_ID            = "ORG-DEMO-001"
-SEMANTIC_MODEL    = "@NEXUS_APP.CORE.SEMANTIC_STAGE/nexus_revenue.yaml"
-DOC_SEARCH_SVC    = "NEXUS_APP.AI.DOC_SEARCH"
+SEMANTIC_MODEL    = "@CORE.SEMANTIC_STAGE/nexus_revenue.yaml"
+DOC_SEARCH_SVC    = "AI.DOC_SEARCH"
 ANALYST_MODEL     = "mistral-large2"
 AGENT_MODEL       = "claude-3-5-sonnet"
 
@@ -143,7 +143,7 @@ def log_query(question: str, sql: str | None, latency_ms: int, session_id: str):
         q = question.replace("'", "''")
         s = (sql or "").replace("'", "''")[:4000]
         run_sql(f"""
-            INSERT INTO NEXUS_APP.AUDIT.CORTEX_ANALYST_LOG
+            INSERT INTO AUDIT.CORTEX_ANALYST_LOG
                 (org_id, user_name, user_role, question, generated_sql,
                  model_used, latency_ms, session_id)
             VALUES

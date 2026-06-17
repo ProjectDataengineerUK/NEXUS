@@ -63,7 +63,7 @@ kpi_df = run_query(f"""
         SUM(CASE WHEN lifecycle_stage = 'at_risk' THEN arr ELSE 0 END) AS arr_at_risk,
         COUNT(CASE WHEN lifecycle_stage = 'at_risk' THEN 1 END)        AS customers_at_risk,
         ROUND(AVG(nps_score), 1)                               AS avg_nps
-    FROM NEXUS_APP.CORE.CUSTOMERS
+    FROM CORE.CUSTOMERS
     WHERE org_id = '{ORG_ID}'
       AND lifecycle_stage != 'churned'
 """)
@@ -72,10 +72,10 @@ churn_df = run_query(f"""
     SELECT
         COUNT(CASE WHEN risk_level = 'HIGH' THEN 1 END)   AS high_risk_count,
         SUM(CASE WHEN risk_level = 'HIGH' THEN expected_revenue_at_risk ELSE 0 END) AS high_risk_arr
-    FROM NEXUS_APP.AI.CHURN_SCORES cs
+    FROM AI.CHURN_SCORES cs
     WHERE cs.org_id = '{ORG_ID}'
       AND scored_at = (
-          SELECT MAX(scored_at) FROM NEXUS_APP.AI.CHURN_SCORES
+          SELECT MAX(scored_at) FROM AI.CHURN_SCORES
           WHERE org_id = '{ORG_ID}' AND customer_id = cs.customer_id
       )
 """)
@@ -83,14 +83,14 @@ churn_df = run_query(f"""
 open_tickets_df = run_query(f"""
     SELECT COUNT(*) AS open_tickets,
            COUNT(CASE WHEN priority = 'urgent' THEN 1 END) AS urgent_tickets
-    FROM NEXUS_APP.CORE.TICKETS
+    FROM CORE.TICKETS
     WHERE org_id = '{ORG_ID}' AND status = 'open'
 """)
 
 rec_df = run_query(f"""
     SELECT COUNT(*) AS pending_recs,
            SUM(expected_impact_usd) AS total_impact
-    FROM NEXUS_APP.AI.RECOMMENDATIONS
+    FROM AI.RECOMMENDATIONS
     WHERE org_id = '{ORG_ID}' AND status = 'pending' AND is_active = TRUE
 """)
 
@@ -156,13 +156,13 @@ with col_left:
             cs.churn_probability     AS prob,
             cs.expected_revenue_at_risk AS arr_risk,
             cs.recommended_action    AS action
-        FROM NEXUS_APP.AI.CHURN_SCORES cs
-        JOIN NEXUS_APP.CORE.CUSTOMERS c
+        FROM AI.CHURN_SCORES cs
+        JOIN CORE.CUSTOMERS c
             ON cs.customer_id = c.customer_id AND c.org_id = cs.org_id
         WHERE cs.org_id = '{ORG_ID}'
           AND cs.risk_level IN ('HIGH', 'MEDIUM')
           AND cs.scored_at = (
-              SELECT MAX(scored_at) FROM NEXUS_APP.AI.CHURN_SCORES
+              SELECT MAX(scored_at) FROM AI.CHURN_SCORES
               WHERE org_id = '{ORG_ID}' AND customer_id = cs.customer_id
           )
         ORDER BY cs.churn_probability DESC
@@ -186,10 +186,10 @@ with col_right:
             cs.risk_level,
             COUNT(*) AS count,
             SUM(cs.expected_revenue_at_risk) AS total_arr_risk
-        FROM NEXUS_APP.AI.CHURN_SCORES cs
+        FROM AI.CHURN_SCORES cs
         WHERE cs.org_id = '{ORG_ID}'
           AND cs.scored_at = (
-              SELECT MAX(scored_at) FROM NEXUS_APP.AI.CHURN_SCORES
+              SELECT MAX(scored_at) FROM AI.CHURN_SCORES
               WHERE org_id = '{ORG_ID}' AND customer_id = cs.customer_id
           )
         GROUP BY cs.risk_level
@@ -219,8 +219,8 @@ with col_right:
             t.priority,
             t.sentiment_label,
             t.sla_breach
-        FROM NEXUS_APP.CORE.TICKETS t
-        JOIN NEXUS_APP.CORE.CUSTOMERS c
+        FROM CORE.TICKETS t
+        JOIN CORE.CUSTOMERS c
             ON t.customer_id = c.customer_id AND c.org_id = t.org_id
         WHERE t.org_id = '{ORG_ID}'
           AND t.status = 'open'
@@ -257,8 +257,8 @@ pending_df = run_query(f"""
         r.expected_impact_usd   AS impact_usd,
         r.confidence_score      AS confidence,
         r.owner_role            AS owner
-    FROM NEXUS_APP.AI.RECOMMENDATIONS r
-    JOIN NEXUS_APP.CORE.CUSTOMERS c
+    FROM AI.RECOMMENDATIONS r
+    JOIN CORE.CUSTOMERS c
         ON r.entity_id = c.customer_id AND c.org_id = r.org_id
     WHERE r.org_id = '{ORG_ID}'
       AND r.status = 'pending'

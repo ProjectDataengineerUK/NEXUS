@@ -33,7 +33,7 @@ rev_df = run_query(f"""
         COUNT(CASE WHEN lifecycle_stage = 'churned' THEN 1 END)    AS churned_customers,
         ROUND(AVG(nps_score), 1)                                   AS avg_nps,
         SUM(CASE WHEN lifecycle_stage IN ('active','at_risk') AND contract_end_date <= DATEADD('month',90,CURRENT_DATE()) THEN arr ELSE 0 END) AS renewal_90d
-    FROM NEXUS_APP.CORE.CUSTOMERS
+    FROM CORE.CUSTOMERS
     WHERE org_id = '{ORG_ID}'
 """)
 
@@ -74,19 +74,19 @@ with col_risk:
             cs.expected_revenue_at_risk     AS arr_risk,
             cs.recommended_action           AS action,
             t.open_tickets
-        FROM NEXUS_APP.AI.CHURN_SCORES cs
-        JOIN NEXUS_APP.CORE.CUSTOMERS c
+        FROM AI.CHURN_SCORES cs
+        JOIN CORE.CUSTOMERS c
             ON cs.customer_id = c.customer_id AND c.org_id = cs.org_id
         LEFT JOIN (
             SELECT customer_id, COUNT(*) AS open_tickets
-            FROM NEXUS_APP.CORE.TICKETS
+            FROM CORE.TICKETS
             WHERE org_id = '{ORG_ID}' AND status = 'open'
             GROUP BY customer_id
         ) t ON cs.customer_id = t.customer_id
         WHERE cs.org_id = '{ORG_ID}'
           AND cs.risk_level = 'HIGH'
           AND cs.scored_at = (
-              SELECT MAX(scored_at) FROM NEXUS_APP.AI.CHURN_SCORES
+              SELECT MAX(scored_at) FROM AI.CHURN_SCORES
               WHERE org_id = '{ORG_ID}' AND customer_id = cs.customer_id
           )
         ORDER BY cs.churn_probability DESC
@@ -111,8 +111,8 @@ with col_opp:
             r.recommendation_text           AS rec,
             r.expected_impact_usd           AS impact,
             r.confidence_score              AS confidence
-        FROM NEXUS_APP.AI.RECOMMENDATIONS r
-        JOIN NEXUS_APP.CORE.CUSTOMERS c
+        FROM AI.RECOMMENDATIONS r
+        JOIN CORE.CUSTOMERS c
             ON r.entity_id = c.customer_id AND c.org_id = r.org_id
         WHERE r.org_id = '{ORG_ID}'
           AND r.status = 'pending'
@@ -140,7 +140,7 @@ seg_df = run_query(f"""
         COUNT(*)             AS customers,
         SUM(arr)             AS total_arr,
         ROUND(AVG(nps_score),1) AS avg_nps
-    FROM NEXUS_APP.CORE.CUSTOMERS
+    FROM CORE.CUSTOMERS
     WHERE org_id = '{ORG_ID}' AND lifecycle_stage != 'churned'
     GROUP BY segment
     ORDER BY total_arr DESC
@@ -171,13 +171,13 @@ cont_df = run_query(f"""
         co.auto_renewal,
         cs.risk_level           AS churn_risk,
         DATEDIFF('day', CURRENT_DATE(), co.end_date) AS days_to_renewal
-    FROM NEXUS_APP.CORE.CONTRACTS co
-    JOIN NEXUS_APP.CORE.CUSTOMERS c
+    FROM CORE.CONTRACTS co
+    JOIN CORE.CUSTOMERS c
         ON co.customer_id = c.customer_id AND c.org_id = co.org_id
-    LEFT JOIN NEXUS_APP.AI.CHURN_SCORES cs
+    LEFT JOIN AI.CHURN_SCORES cs
         ON co.customer_id = cs.customer_id AND cs.org_id = co.org_id
         AND cs.scored_at = (
-            SELECT MAX(scored_at) FROM NEXUS_APP.AI.CHURN_SCORES
+            SELECT MAX(scored_at) FROM AI.CHURN_SCORES
             WHERE org_id = '{ORG_ID}' AND customer_id = co.customer_id
         )
     WHERE co.org_id = '{ORG_ID}'
