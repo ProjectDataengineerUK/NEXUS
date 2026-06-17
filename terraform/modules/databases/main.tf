@@ -69,3 +69,32 @@ resource "snowflake_schema" "config" {
   data_retention_time_in_days = 90
   comment                     = "Configurações do app: vertical packs, roles, thresholds"
 }
+
+# ─── Stages internos: NEXUS_APP.CORE ─────────────────────────────────────────
+
+resource "snowflake_stage" "app_stage" {
+  database = snowflake_database.nexus_app.name
+  schema   = snowflake_schema.core.name
+  name     = "APP_STAGE"
+  comment  = "Arquivos da Streamlit app (pages, Home.py)"
+
+  depends_on = [snowflake_schema.core]
+}
+
+resource "snowflake_stage" "ml_stage" {
+  database = snowflake_database.nexus_app.name
+  schema   = snowflake_schema.core.name
+  name     = "ML_STAGE"
+  comment  = "Modelos ML: churn_model.py e artefatos Snowpark"
+
+  depends_on = [snowflake_schema.core]
+}
+
+resource "snowflake_stage" "semantic_stage" {
+  database = snowflake_database.nexus_app.name
+  schema   = snowflake_schema.core.name
+  name     = "SEMANTIC_STAGE"
+  comment  = "Semantic models YAML para Cortex Analyst"
+
+  depends_on = [snowflake_schema.core]
+}
