@@ -1,5 +1,6 @@
 {{
     config(
+        alias='customer_360_mart',
         materialized='incremental',
         unique_key='customer_id',
         incremental_strategy='merge',
