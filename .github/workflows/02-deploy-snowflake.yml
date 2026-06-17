@@ -143,6 +143,7 @@ jobs:
         run: |
           python - <<'EOF'
           import snowflake.connector, os, glob
+          from io import StringIO
           from snowflake.connector.util_text import split_statements
 
           scripts = sorted(glob.glob("snowflake/setup/*.sql"))
@@ -170,7 +171,7 @@ jobs:
               with open(script) as f:
                   raw = f.read()
               # split_statements from the connector handles $$, BEGIN..END, comments
-              for stmt, _ in split_statements(raw, remove_comments=True):
+              for stmt, _ in split_statements(StringIO(raw), remove_comments=True):
                   stmt = stmt.strip()
                   if not stmt:
                       continue
