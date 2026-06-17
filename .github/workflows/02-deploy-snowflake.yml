@@ -221,7 +221,11 @@ jobs:
           IGNORABLE = ("already exists", "duplicate", "unique constraint",
                        "primary key constraint", "object already exists",
                        "already set", "already added", "already applied",
-                       "already has")
+                       "already has",
+                       "not available for trial",  # Cortex AI features need Enterprise
+                       "not supported for trial",
+                       "feature not enabled",
+                       "unsupported feature")
 
           for script in scripts:
               print(f"  running {os.path.basename(script)}")
