@@ -195,6 +195,22 @@ CREATE TABLE IF NOT EXISTS AUDIT.AGENT_CHAT_LOG (
     PRIMARY KEY (message_id)
 );
 
+CREATE TABLE IF NOT EXISTS AUDIT.PROMPT_LOG (
+    log_id              VARCHAR(36)  NOT NULL DEFAULT UUID_STRING(),
+    session_id          VARCHAR(36),
+    org_id              VARCHAR(36)  NOT NULL,
+    user_name           VARCHAR(255) NOT NULL,
+    role_name           VARCHAR(255) NOT NULL,
+    agent_id            VARCHAR(100),
+    prompt_text         TEXT         NOT NULL,
+    data_sources        VARIANT,
+    response_summary    TEXT,
+    cortex_tokens_used  INTEGER      DEFAULT 0,
+    latency_ms          INTEGER,
+    created_at          TIMESTAMP_TZ NOT NULL DEFAULT CURRENT_TIMESTAMP(),
+    PRIMARY KEY (log_id)
+);
+
 CREATE TABLE IF NOT EXISTS AUDIT.DATA_QUALITY_RESULTS (
     result_id    VARCHAR(36)  NOT NULL DEFAULT UUID_STRING(),
     org_id       VARCHAR(36)  NOT NULL,
@@ -244,6 +260,10 @@ WHEN NOT MATCHED THEN
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Stages internos
 -- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE STAGE IF NOT EXISTS CORE.APP_STAGE
+    DIRECTORY  = (ENABLE = TRUE)
+    ENCRYPTION = (TYPE = 'SNOWFLAKE_SSE');
 
 CREATE STAGE IF NOT EXISTS CORE.DOC_STAGE
     DIRECTORY  = (ENABLE = TRUE)
@@ -296,6 +316,25 @@ GRANT ALL    ON STAGE CORE.ML_STAGE             TO APPLICATION ROLE NEXUS_ADMIN;
 --   GRANT DATABASE ROLE SNOWFLAKE.CORTEX_USER TO APPLICATION ROLE <app>.NEXUS_VIEWER;
 --   GRANT DATABASE ROLE SNOWFLAKE.CORTEX_USER TO APPLICATION ROLE <app>.NEXUS_ANALYST;
 --   GRANT DATABASE ROLE SNOWFLAKE.CORTEX_USER TO APPLICATION ROLE <app>.NEXUS_ADMIN;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Grants adicionais para AUDIT.PROMPT_LOG
+-- ─────────────────────────────────────────────────────────────────────────────
+
+GRANT INSERT ON TABLE AUDIT.PROMPT_LOG TO APPLICATION ROLE NEXUS_VIEWER;
+GRANT INSERT ON TABLE AUDIT.PROMPT_LOG TO APPLICATION ROLE NEXUS_ANALYST;
+GRANT SELECT ON TABLE AUDIT.PROMPT_LOG TO APPLICATION ROLE NEXUS_ADMIN;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Streamlit UI (referenciado por manifest.yml como default_streamlit)
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE STREAMLIT CORE.NEXUS_UI
+    ROOT_LOCATION = '@CORE.APP_STAGE/streamlit'
+    MAIN_FILE     = 'Home.py'
+    QUERY_WAREHOUSE = NEXUS_COMPUTE_WH;
+
+GRANT USAGE ON STREAMLIT CORE.NEXUS_UI TO APPLICATION ROLE NEXUS_VIEWER;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Versioning
