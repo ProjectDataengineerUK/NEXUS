@@ -10,8 +10,7 @@ version:
 artifacts:
   setup_script: setup_script.sql
   readme: readme.md
-  default_streamlit: streamlit/Home
-  extension_code: true
+  extension_code: false
 
 privileges:
   - name: CREATE WAREHOUSE
