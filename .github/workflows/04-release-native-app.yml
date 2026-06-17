@@ -129,20 +129,19 @@ jobs:
           VERSION_SLUG  = os.environ["APP_VERSION_SLUG"]
           STAGE         = f"@NEXUS_AI_DATAOPS_PKG.PUBLIC.APP_STAGE/{VERSION_SLUG}"
 
-          # Adicionar nova versão
+          # Registrar nova versão (API para release channels habilitados)
           cs.execute(f"""
               ALTER APPLICATION PACKAGE NEXUS_AI_DATAOPS_PKG
-                  ADD VERSION {VERSION_SLUG}
+                  REGISTER VERSION {VERSION_SLUG}
                   USING '{STAGE}'
                   LABEL = '{VERSION_LABEL}'
           """)
 
-          # Definir como versão padrão (release directive)
+          # Adicionar ao release channel DEFAULT (torna a versão disponível para instalar)
           cs.execute(f"""
               ALTER APPLICATION PACKAGE NEXUS_AI_DATAOPS_PKG
-                  SET DEFAULT RELEASE DIRECTIVE
-                  VERSION = {VERSION_SLUG}
-                  PATCH = 0
+                  MODIFY RELEASE CHANNEL DEFAULT
+                  ADD VERSION {VERSION_SLUG}
           """)
 
           print(f"Native App version {VERSION_SLUG} ({VERSION_LABEL}) released.")
