@@ -145,27 +145,36 @@ jobs:
           import snowflake.connector, os, glob
 
           def split_sql(sql):
-              """Split SQL into statements, correctly handling $$ dollar-quoted blocks."""
+              """Split SQL into statements handling $$ blocks; strips -- and /**/ comments
+              so that USE ROLE / USE DATABASE statements are detected even when preceded
+              by comment-only lines."""
               stmts, cur = [], []
               i, n = 0, len(sql)
               in_dq = in_sq = in_lc = in_bc = False
               while i < n:
                   c = sql[i]
+                  # Line comment: consume until newline; preserve only the newline
                   if in_lc:
-                      if c == '\n': in_lc = False
-                      cur.append(c); i += 1; continue
+                      if c == '\n':
+                          in_lc = False
+                          cur.append('\n')
+                      i += 1
+                      continue
+                  # Block comment: consume until */; replace with single space
                   if in_bc:
                       if c == '*' and i+1 < n and sql[i+1] == '/':
-                          cur.append('*/'); i += 2; in_bc = False
+                          i += 2; in_bc = False; cur.append(' ')
                       else:
-                          cur.append(c); i += 1
+                          i += 1
                       continue
+                  # Dollar-quoted block: pass ALL chars through until closing $$
                   if in_dq:
                       if c == '$' and i+1 < n and sql[i+1] == '$':
                           cur.append('$$'); i += 2; in_dq = False
                       else:
                           cur.append(c); i += 1
                       continue
+                  # Single-quoted string: pass through, handle '' escape
                   if in_sq:
                       if c == "'":
                           if i+1 < n and sql[i+1] == "'":
@@ -175,10 +184,11 @@ jobs:
                       else:
                           cur.append(c); i += 1
                       continue
+                  # Top-level: detect openers — do NOT append comment markers to cur
                   if c == '-' and i+1 < n and sql[i+1] == '-':
-                      in_lc = True; cur.append('--'); i += 2; continue
+                      in_lc = True; i += 2; continue
                   if c == '/' and i+1 < n and sql[i+1] == '*':
-                      in_bc = True; cur.append('/*'); i += 2; continue
+                      in_bc = True; i += 2; continue
                   if c == '$' and i+1 < n and sql[i+1] == '$':
                       in_dq = True; cur.append('$$'); i += 2; continue
                   if c == "'":
