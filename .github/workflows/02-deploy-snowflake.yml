@@ -160,7 +160,8 @@ jobs:
           cs = conn.cursor()
 
           IGNORABLE = ("already exists", "duplicate", "unique constraint",
-                       "primary key constraint", "object already exists")
+                       "primary key constraint", "object already exists",
+                       "already set", "already added", "already applied")
 
           def strip_comments(sql):
               """Remove -- line comments so semicolons inside them don't split statements."""
