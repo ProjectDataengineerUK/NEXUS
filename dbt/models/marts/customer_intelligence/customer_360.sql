@@ -159,17 +159,3 @@ final as (
 )
 
 select * from final
-
-{% if is_incremental() %}
-    -- Em runs incrementais, reprocessa clientes modificados nas últimas 25h
-    where customer_id in (
-        select distinct customer_id from {{ ref('stg_customers') }}
-        where updated_at >= dateadd('hour', -25, current_timestamp())
-        union
-        select distinct customer_id from {{ ref('stg_product_events') }}
-        where occurred_at >= dateadd('hour', -25, current_timestamp())
-        union
-        select distinct customer_id from {{ ref('stg_tickets') }}
-        where created_at >= dateadd('hour', -25, current_timestamp())
-    )
-{% endif %}
