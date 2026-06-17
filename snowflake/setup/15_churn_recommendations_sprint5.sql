@@ -85,7 +85,7 @@ GRANT USAGE ON PROCEDURE NEXUS_APP.CORE.SP_UPDATE_RECOMMENDATION(VARCHAR, VARCHA
 -- ─────────────────────────────────────────────────────────────────────────────
 
 CREATE OR REPLACE DYNAMIC TABLE NEXUS_APP.MART.ACTION_CENTER
-    TARGET_LAG = '30 minutes'
+    TARGET_LAG = '1 hour'
     WAREHOUSE  = NEXUS_COMPUTE_WH
     COMMENT    = 'Fila de ações priorizadas combinando churn e recomendações'
 AS
