@@ -39,14 +39,11 @@ jobs:
       github.event.workflow_run.conclusion == 'success'
 
     env:
-      DBT_TARGET:           ${{ github.event.inputs.target || 'dev' }}
-      DBT_SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
-      DBT_SNOWFLAKE_USER:    ${{ secrets.SNOWFLAKE_USER }}
-      DBT_SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
-      DBT_SNOWFLAKE_ROLE:    NEXUS_DATA_ENGINEER
-      DBT_SNOWFLAKE_DATABASE: NEXUS_APP
-      DBT_SNOWFLAKE_WAREHOUSE: NEXUS_INGEST_WH
-      DBT_SNOWFLAKE_SCHEMA:  STAGING
+      DBT_TARGET:          ${{ github.event.inputs.target || 'dev' }}
+      DBT_PROFILES_DIR:    .
+      SNOWFLAKE_ACCOUNT:   ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_USER:      ${{ secrets.SNOWFLAKE_USER }}
+      SNOWFLAKE_PASSWORD:  ${{ secrets.SNOWFLAKE_PASSWORD }}
 
     defaults:
       run:
@@ -63,35 +60,6 @@ jobs:
 
       - name: Instalar dbt-snowflake
         run: pip install dbt-snowflake==1.8.*
-
-      - name: Criar profiles.yml dinâmico
-        run: |
-          mkdir -p ~/.dbt
-          cat > ~/.dbt/profiles.yml << EOF
-          nexus_snowflake:
-            target: ${{ env.DBT_TARGET }}
-            outputs:
-              dev:
-                type: snowflake
-                account: ${DBT_SNOWFLAKE_ACCOUNT}
-                user: ${DBT_SNOWFLAKE_USER}
-                password: ${DBT_SNOWFLAKE_PASSWORD}
-                role: ${DBT_SNOWFLAKE_ROLE}
-                database: ${DBT_SNOWFLAKE_DATABASE}
-                warehouse: ${DBT_SNOWFLAKE_WAREHOUSE}
-                schema: ${DBT_SNOWFLAKE_SCHEMA}
-                threads: 4
-              prod:
-                type: snowflake
-                account: ${{ secrets.SNOWFLAKE_PROD_ACCOUNT }}
-                user: ${{ secrets.SNOWFLAKE_PROD_USER }}
-                password: ${{ secrets.SNOWFLAKE_PROD_PASSWORD }}
-                role: NEXUS_DATA_ENGINEER
-                database: NEXUS_APP
-                warehouse: NEXUS_INGEST_WH
-                schema: STAGING
-                threads: 8
-          EOF
 
       - name: dbt deps
         run: dbt deps
