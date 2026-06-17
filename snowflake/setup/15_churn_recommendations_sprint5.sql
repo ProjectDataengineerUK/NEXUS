@@ -152,30 +152,30 @@ AS
 
 MERGE INTO NEXUS_APP.AI.CHURN_SCORES tgt
 USING (
-    SELECT v.*
-    FROM (VALUES
-        ('CUST-001', 'ORG-DEMO-001', 0.1200, 'LOW',
-         PARSE_JSON('["perfil_de_risco_moderado"]'),
-         'Manter cadência padrão e monitorar próxima renovação',
-         14400.00),
-        ('CUST-002', 'ORG-DEMO-001', 0.7850, 'HIGH',
-         PARSE_JSON('["baixo_engajamento","multiplas_violacoes_sla","nps_muito_baixo"]'),
-         'Contato imediato do CSM + escalar violações de SLA urgentemente',
-         235500.00),
-        ('CUST-003', 'ORG-DEMO-001', 0.0450, 'LOW',
-         PARSE_JSON('["perfil_de_risco_moderado"]'),
-         'Manter cadência padrão — cliente champion, explorar oportunidade de upsell',
-         3240.00),
-        ('CUST-004', 'ORG-DEMO-001', 0.4200, 'MEDIUM',
-         PARSE_JSON('["acumulo_de_tickets","baixo_mrr"]'),
-         'Revisar tickets em aberto e agendar check-in mensal',
-         50400.00),
-        ('CUST-005', 'ORG-DEMO-001', 0.0300, 'LOW',
-         PARSE_JSON('["perfil_de_risco_moderado"]'),
-         'Cliente estável — identificar oportunidade de expansão de licenças',
-         900.00)
-    ) AS v (customer_id, org_id, churn_probability, risk_level,
-            top_drivers, recommended_action, expected_revenue_at_risk)
+    SELECT 'CUST-001' AS customer_id, 'ORG-DEMO-001' AS org_id, 0.1200 AS churn_probability, 'LOW' AS risk_level,
+           PARSE_JSON('["perfil_de_risco_moderado"]') AS top_drivers,
+           'Manter cadência padrão e monitorar próxima renovação' AS recommended_action,
+           14400.00 AS expected_revenue_at_risk
+    UNION ALL
+    SELECT 'CUST-002', 'ORG-DEMO-001', 0.7850, 'HIGH',
+           PARSE_JSON('["baixo_engajamento","multiplas_violacoes_sla","nps_muito_baixo"]'),
+           'Contato imediato do CSM + escalar violações de SLA urgentemente',
+           235500.00
+    UNION ALL
+    SELECT 'CUST-003', 'ORG-DEMO-001', 0.0450, 'LOW',
+           PARSE_JSON('["perfil_de_risco_moderado"]'),
+           'Manter cadência padrão — cliente champion, explorar oportunidade de upsell',
+           3240.00
+    UNION ALL
+    SELECT 'CUST-004', 'ORG-DEMO-001', 0.4200, 'MEDIUM',
+           PARSE_JSON('["acumulo_de_tickets","baixo_mrr"]'),
+           'Revisar tickets em aberto e agendar check-in mensal',
+           50400.00
+    UNION ALL
+    SELECT 'CUST-005', 'ORG-DEMO-001', 0.0300, 'LOW',
+           PARSE_JSON('["perfil_de_risco_moderado"]'),
+           'Cliente estável — identificar oportunidade de expansão de licenças',
+           900.00
 ) src
 ON tgt.customer_id = src.customer_id AND tgt.org_id = src.org_id
 WHEN MATCHED THEN UPDATE SET
