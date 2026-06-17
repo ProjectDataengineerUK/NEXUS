@@ -13,8 +13,7 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write        # para comentar o plan no PR
-  id-token: write             # necessário para Workload Identity Federation (GCP)
+  pull-requests: write
 
 env:
   TF_VERSION: "1.9.0"
@@ -28,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        env: [dev]   # adicionar prod quando tiver conta separada
+        env: [dev]
 
     defaults:
       run:
@@ -45,9 +44,8 @@ jobs:
       - name: Autenticar no GCP (backend GCS)
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account:            ${{ secrets.GCP_SERVICE_ACCOUNT }}
-          project_id:                 ${{ vars.GCP_PROJECT }}
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          project_id:       ${{ vars.GCP_PROJECT }}
 
       - name: Terraform Init
         env:
@@ -109,9 +107,8 @@ jobs:
       - name: Autenticar no GCP
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account:            ${{ secrets.GCP_SERVICE_ACCOUNT }}
-          project_id:                 ${{ vars.GCP_PROJECT }}
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          project_id:       ${{ vars.GCP_PROJECT }}
 
       - name: Terraform Init
         env:
@@ -133,7 +130,7 @@ jobs:
     name: "Apply (prod)"
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
-    environment: prod   # exige aprovação manual no GitHub Environments
+    environment: prod
 
     defaults:
       run:
@@ -150,9 +147,8 @@ jobs:
       - name: Autenticar no GCP
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ secrets.GCP_PROD_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account:            ${{ secrets.GCP_PROD_SERVICE_ACCOUNT }}
-          project_id:                 ${{ vars.GCP_PROJECT }}
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          project_id:       ${{ vars.GCP_PROJECT }}
 
       - name: Terraform Init
         env:
