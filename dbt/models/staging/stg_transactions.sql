@@ -14,7 +14,7 @@ renamed as (
         transaction_id,
         org_id,
         customer_id,
-        subscription_id,
+        null::varchar(36)                                     as subscription_id,
 
         lower(coalesce(transaction_type, 'unknown'))          as transaction_type,
         lower(coalesce(status, 'completed'))                  as status,

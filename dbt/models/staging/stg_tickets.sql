@@ -14,17 +14,17 @@ renamed as (
         ticket_id,
         org_id,
         customer_id,
-        subscription_id,
+        null::varchar(36)                                     as subscription_id,
 
         trim(subject)                                         as subject,
         lower(coalesce(status, 'open'))                       as status,
         lower(coalesce(priority, 'medium'))                   as priority,
-        lower(coalesce(category, 'general'))                  as category,
-        lower(coalesce(channel, 'unknown'))                   as channel,
+        null::varchar(50)                                     as category,
+        null::varchar(50)                                     as channel,
 
-        coalesce(sla_breached, false)                         as sla_breached,
-        coalesce(first_response_minutes, 0)                   as first_response_minutes,
-        coalesce(resolution_minutes, 0)                       as resolution_minutes,
+        coalesce(sla_breach, false)                           as sla_breached,
+        null::integer                                         as first_response_minutes,
+        null::integer                                         as resolution_minutes,
 
         -- normaliza sentiment -1..1
         case

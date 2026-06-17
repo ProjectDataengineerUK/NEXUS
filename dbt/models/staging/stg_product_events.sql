@@ -21,7 +21,7 @@ renamed as (
         lower(trim(coalesce(feature_name, 'unknown')))        as feature_name,
         coalesce(event_value, 1)                              as event_value,
         lower(coalesce(platform, 'web'))                      as platform,
-        lower(coalesce(user_role, 'unknown'))                 as user_role,
+        null::varchar(50)                                     as user_role,
 
         cast(occurred_at as timestamp_tz)                     as occurred_at,
         cast(occurred_at as date)                             as occurred_date,

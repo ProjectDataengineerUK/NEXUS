@@ -24,9 +24,9 @@ renamed as (
         cast(coalesce(mrr, 0) as decimal(18, 2))              as mrr,
         cast(coalesce(arr, mrr * 12, 0) as decimal(18, 2))   as arr,
 
-        cast(started_at as timestamp_tz)                      as started_at,
-        cast(renewal_date as date)                            as renewal_date,
-        cast(ended_at as timestamp_tz)                        as ended_at,
+        cast(coalesce(current_period_start, created_at) as timestamp_tz) as started_at,
+        cast(coalesce(current_period_end, trial_end_date, cancel_at) as date) as renewal_date,
+        cast(canceled_at as timestamp_tz)                     as ended_at,
 
         current_timestamp()                                   as _dbt_loaded_at
 

@@ -24,15 +24,19 @@ renamed as (
         upper(coalesce(region, 'UNKNOWN'))                       as region,
         lower(coalesce(industry, 'unknown'))                     as industry,
 
-        -- status
-        lower(coalesce(status, 'active'))                        as status,
+        -- status derivado de lifecycle_stage (CUSTOMERS não tem coluna status)
+        case
+            when lower(coalesce(lifecycle_stage, 'active')) = 'churned' then 'churned'
+            when lower(coalesce(lifecycle_stage, 'active')) = 'at_risk' then 'inactive'
+            else 'active'
+        end                                                      as status,
         lower(coalesce(lifecycle_stage, 'active'))               as lifecycle_stage,
 
         -- métricas
         cast(nps_score as integer)                               as nps_score,
 
-        -- datas
-        cast(customer_since as timestamp_tz)                     as customer_since,
+        -- datas (customer_since = created_at; CUSTOMERS não tem customer_since)
+        cast(created_at as timestamp_tz)                         as customer_since,
         cast(updated_at as timestamp_tz)                         as updated_at,
 
         -- auditoria dbt
