@@ -55,22 +55,3 @@ models:
         tests:
           - accepted_values:
               values: ['active', 'at_risk', 'churned']
-
-  - name: action_center
-    description: >
-      Fila priorizada de ações — recomendações ativas com contexto do cliente.
-      Materializada como table, atualizada a cada run dbt.
-    columns:
-      - name: recommendation_id
-        tests: [unique, not_null]
-
-      - name: priority
-        tests:
-          - accepted_values:
-              values: ['HIGH', 'MEDIUM', 'LOW']
-
-      - name: priority_score
-        description: "Score composto para ordenação: priority_weight × impacto_normalizado."
-        tests:
-          - dbt_utils.accepted_range:
-              min_value: 0
