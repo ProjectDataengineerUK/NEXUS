@@ -11,47 +11,17 @@ artifacts:
   setup_script: setup_script.sql
   readme: readme.md
   default_streamlit: streamlit/Home
-
   extension_code: true
 
-  streamlit:
-    - name: Home
-      file: streamlit/Home.py
-      comment: "NEXUS Home — Executive Dashboard"
-    - name: Executive_Command
-      file: streamlit/pages/1_Executive_Command.py
-    - name: Customer_360
-      file: streamlit/pages/2_Customer_360.py
-    - name: AI_Chat
-      file: streamlit/pages/3_AI_Chat.py
-    - name: Document_Intelligence
-      file: streamlit/pages/4_Document_Intelligence.py
-    - name: Recommendations
-      file: streamlit/pages/5_Recommendations.py
-    - name: Data_Quality
-      file: streamlit/pages/6_Data_Quality.py
-    - name: Admin
-      file: streamlit/pages/7_Admin.py
-
-  stage_files:
-    - source: streamlit/
-      destination: streamlit/
-    - source: cortex/semantic_models/nexus_revenue.yaml
-      destination: cortex/semantic_models/
-
 privileges:
-  - USAGE ON DATABASE {{ consumer_database }}
-
-  - CREATE DATABASE
-  - CREATE WAREHOUSE
-  - EXECUTE TASK
-  - EXECUTE MANAGED TASK
-
-  - name: USAGE ON SCHEMA {{ consumer_database }}.PUBLIC
-    description: "Needed to read consumer data sources"
-
-  - name: CREATE TABLE ON SCHEMA NEXUS_APP.CORE
-    description: "Create NEXUS core tables in consumer account"
+  - name: CREATE WAREHOUSE
+    description: "Create compute warehouses for NEXUS workloads"
+  - name: CREATE DATABASE
+    description: "Create the NEXUS application database"
+  - name: EXECUTE TASK
+    description: "Execute scheduled data refresh tasks"
+  - name: EXECUTE MANAGED TASK
+    description: "Execute Snowflake-managed refresh tasks"
 
 references:
   - name: consumer_customer_data
