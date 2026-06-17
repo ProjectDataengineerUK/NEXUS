@@ -62,6 +62,7 @@ sources:
 
       - name: product_events
         description: "Eventos de uso do produto — engajamento e adoção de features."
+        loaded_at_field: occurred_at
         columns:
           - name: event_id
             tests: [unique, not_null]
@@ -72,6 +73,7 @@ sources:
 
       - name: transactions
         description: "Transações financeiras — new_contract, renewal, upsell, churn."
+        loaded_at_field: created_at
         columns:
           - name: transaction_id
             tests: [unique, not_null]
