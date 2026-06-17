@@ -13,14 +13,10 @@ artifacts:
   extension_code: false
 
 privileges:
-  - name: CREATE WAREHOUSE
-    description: "Create compute warehouses for NEXUS workloads"
-  - name: CREATE DATABASE
-    description: "Create the NEXUS application database"
-  - name: EXECUTE TASK
-    description: "Execute scheduled data refresh tasks"
-  - name: EXECUTE MANAGED TASK
-    description: "Execute Snowflake-managed refresh tasks"
+  - CREATE WAREHOUSE
+  - CREATE DATABASE
+  - EXECUTE TASK
+  - EXECUTE MANAGED TASK
 
 references:
   - name: consumer_customer_data
