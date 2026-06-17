@@ -142,7 +142,8 @@ jobs:
         if: ${{ github.event.inputs.skip_sql != 'true' }}
         run: |
           python - <<'EOF'
-          import snowflake.connector, os, glob, re
+          import snowflake.connector, os, glob
+          from snowflake.connector.util_text import split_statements
 
           scripts = sorted(glob.glob("snowflake/setup/*.sql"))
           if not scripts:
@@ -164,39 +165,15 @@ jobs:
                        "already set", "already added", "already applied",
                        "already has")
 
-          def split_statements(sql):
-              """
-              Split Snowflake SQL into statements.
-              Handles $$ block bodies (which contain semicolons) and -- comments.
-              """
-              # 1. Protect all $$ ... $$ spans with null-byte placeholders
-              dollar_blocks = []
-              def save_block(m):
-                  idx = len(dollar_blocks)
-                  dollar_blocks.append(m.group(0))
-                  return f'\x00BLOCK{idx}\x00'
-              protected = re.sub(r'\$\$.*?\$\$', save_block, sql, flags=re.DOTALL)
-
-              # 2. Strip -- line comments from unprotected text
-              lines = [re.sub(r'--.*$', '', line) for line in protected.splitlines()]
-              clean = '\n'.join(lines)
-
-              # 3. Split on ; and restore $$ blocks
-              stmts = []
-              for chunk in clean.split(';'):
-                  chunk = chunk.strip()
-                  if not chunk:
-                      continue
-                  for i, block in enumerate(dollar_blocks):
-                      chunk = chunk.replace(f'\x00BLOCK{i}\x00', block)
-                  stmts.append(chunk)
-              return stmts
-
           for script in scripts:
               print(f"  running {os.path.basename(script)}")
               with open(script) as f:
                   raw = f.read()
-              for stmt in split_statements(raw):
+              # split_statements from the connector handles $$, BEGIN..END, comments
+              for stmt, _ in split_statements(raw, remove_comments=True):
+                  stmt = stmt.strip()
+                  if not stmt:
+                      continue
                   if stmt.upper().startswith("USE "):
                       continue
                   try:

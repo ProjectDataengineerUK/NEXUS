@@ -20,9 +20,7 @@ CREATE OR REPLACE TASK NEXUS_APP.CONFIG.TASK_DATA_QUALITY
     SCHEDULE = 'USING CRON 0 6 * * * UTC'
     COMMENT = 'Executa Data Metric Functions e registra em AUDIT.DATA_QUALITY_RESULTS'
 AS
-$$
 BEGIN
-    -- Freshness check: CORE.CUSTOMERS
     INSERT INTO NEXUS_APP.AUDIT.DATA_QUALITY_RESULTS
         (org_id, table_name, metric_name, metric_value, threshold, status, details)
     SELECT
@@ -35,7 +33,6 @@ BEGIN
         OBJECT_CONSTRUCT('last_update', MAX(updated_at)::VARCHAR) AS details
     FROM NEXUS_APP.CORE.CUSTOMERS;
 
-    -- Row count anomaly: CORE.TRANSACTIONS (variação > 20% é alerta)
     INSERT INTO NEXUS_APP.AUDIT.DATA_QUALITY_RESULTS
         (org_id, table_name, metric_name, metric_value, threshold, status)
     WITH today_count AS (
@@ -55,7 +52,6 @@ BEGIN
 
     RETURN 'Data quality checks completed';
 END;
-$$;
 
 -- Task: Geração de AI Briefing semanal (segunda-feira 08:00 UTC)
 CREATE OR REPLACE TASK NEXUS_APP.CONFIG.TASK_WEEKLY_BRIEFING
@@ -63,11 +59,9 @@ CREATE OR REPLACE TASK NEXUS_APP.CONFIG.TASK_WEEKLY_BRIEFING
     SCHEDULE = 'USING CRON 0 8 * * 1 UTC'
     COMMENT = 'Gera Executive AI Briefing semanal e armazena em AI.RECOMMENDATIONS'
 AS
-$$
-DECLARE
-    briefing_text TEXT;
 BEGIN
-    -- Gera narrativa executiva com Cortex
+    LET briefing_text TEXT;
+
     SELECT SNOWFLAKE.CORTEX.COMPLETE(
         'claude-3-5-sonnet',
         CONCAT(
@@ -84,19 +78,17 @@ BEGIN
             LEFT JOIN NEXUS_APP.AI.CHURN_SCORES cs ON cs.customer_id = c.customer_id
             WHERE cs.scored_at >= CURRENT_DATE() - 7)
         )
-    ) INTO briefing_text;
+    ) INTO :briefing_text;
 
-    -- Salvar como recomendação especial
     INSERT INTO NEXUS_APP.AI.RECOMMENDATIONS
         (org_id, entity_id, entity_type, recommendation_type, priority,
          recommendation_text, expires_at)
     VALUES
         ('default', 'executive', 'briefing', 'weekly_briefing', 'HIGH',
-         briefing_text, CURRENT_TIMESTAMP() + INTERVAL '7 days');
+         :briefing_text, CURRENT_TIMESTAMP() + INTERVAL '7 days');
 
     RETURN 'Weekly briefing generated';
 END;
-$$;
 
 -- Task: Refresh de churn scores diário (02:00 UTC, após marts dbt)
 CREATE OR REPLACE TASK NEXUS_APP.CONFIG.TASK_CHURN_SCORING
@@ -104,12 +96,9 @@ CREATE OR REPLACE TASK NEXUS_APP.CONFIG.TASK_CHURN_SCORING
     SCHEDULE = 'USING CRON 0 2 * * * UTC'
     COMMENT = 'Executa inference do modelo de churn e atualiza AI.CHURN_SCORES'
 AS
-$$
--- Chamada ao modelo registrado no Model Registry
-CALL NEXUS_APP.AI.RUN_CHURN_SCORING();
-$$;
+    CALL NEXUS_APP.AI.RUN_CHURN_SCORING();
 
--- Ativar tasks (descomentado em produção após validação)
+-- Ativar tasks em produção após validação
 -- ALTER TASK NEXUS_APP.CONFIG.TASK_DATA_QUALITY    RESUME;
 -- ALTER TASK NEXUS_APP.CONFIG.TASK_WEEKLY_BRIEFING RESUME;
 -- ALTER TASK NEXUS_APP.CONFIG.TASK_CHURN_SCORING   RESUME;
