@@ -86,10 +86,15 @@ WHEN NOT MATCHED THEN INSERT (role_name, agent_id, vertical_pack, created_at)
     VALUES (src.role_name, src.agent_id, src.vertical_pack, src.created_at);
 
 -- Concessão de roles ao usuário atual (CI user = NEXUS, ou qualquer usuário admin)
-EXECUTE IMMEDIATE 'GRANT ROLE NEXUS_ADMIN         TO USER ' || CURRENT_USER();
-EXECUTE IMMEDIATE 'GRANT ROLE NEXUS_ANALYST       TO USER ' || CURRENT_USER();
-EXECUTE IMMEDIATE 'GRANT ROLE NEXUS_VIEWER        TO USER ' || CURRENT_USER();
-EXECUTE IMMEDIATE 'GRANT ROLE NEXUS_DATA_ENGINEER TO USER ' || CURRENT_USER();
+EXECUTE IMMEDIATE $$
+BEGIN
+  LET u VARCHAR := CURRENT_USER();
+  EXECUTE IMMEDIATE 'GRANT ROLE NEXUS_ADMIN         TO USER ' || u;
+  EXECUTE IMMEDIATE 'GRANT ROLE NEXUS_ANALYST       TO USER ' || u;
+  EXECUTE IMMEDIATE 'GRANT ROLE NEXUS_VIEWER        TO USER ' || u;
+  EXECUTE IMMEDIATE 'GRANT ROLE NEXUS_DATA_ENGINEER TO USER ' || u;
+END;
+$$;
 
 -- Mapeamento usuário → org_id (usado pela Row Access Policy de isolamento multi-tenant)
 CREATE TABLE IF NOT EXISTS NEXUS_APP.CONFIG.ORG_USER_MAP (
