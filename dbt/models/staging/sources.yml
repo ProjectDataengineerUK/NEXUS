@@ -1,0 +1,117 @@
+version: 2
+
+sources:
+  - name: nexus_core
+    database: NEXUS_APP
+    schema: CORE
+    description: "Camada raw do NEXUS — dados ingeridos de fontes externas."
+    freshness:
+      warn_after:  {count: 24, period: hour}
+      error_after: {count: 48, period: hour}
+    loaded_at_field: updated_at
+
+    tables:
+      - name: customers
+        description: "Cadastro de clientes com segmentação e métricas de relacionamento."
+        columns:
+          - name: customer_id
+            description: "PK — UUID do cliente."
+            tests: [unique, not_null]
+          - name: org_id
+            tests: [not_null]
+          - name: name
+            tests: [not_null]
+          - name: status
+            tests:
+              - accepted_values:
+                  values: ['active', 'inactive', 'churned', 'prospect']
+          - name: lifecycle_stage
+            tests:
+              - accepted_values:
+                  values: ['active', 'at_risk', 'churned', 'onboarding']
+
+      - name: subscriptions
+        description: "Subscrições de produtos — base da receita recorrente."
+        columns:
+          - name: subscription_id
+            tests: [unique, not_null]
+          - name: customer_id
+            tests: [not_null]
+          - name: org_id
+            tests: [not_null]
+          - name: mrr
+            tests:
+              - dbt_utils.accepted_range:
+                  min_value: 0
+          - name: status
+            tests:
+              - accepted_values:
+                  values: ['active', 'cancelled', 'paused', 'trial', 'deleted']
+
+      - name: tickets
+        description: "Tickets de suporte — sentimento e SLA."
+        columns:
+          - name: ticket_id
+            tests: [unique, not_null]
+          - name: customer_id
+            tests: [not_null]
+          - name: priority
+            tests:
+              - accepted_values:
+                  values: ['low', 'medium', 'high', 'critical']
+
+      - name: product_events
+        description: "Eventos de uso do produto — engajamento e adoção de features."
+        columns:
+          - name: event_id
+            tests: [unique, not_null]
+          - name: customer_id
+            tests: [not_null]
+          - name: occurred_at
+            tests: [not_null]
+
+      - name: transactions
+        description: "Transações financeiras — new_contract, renewal, upsell, churn."
+        columns:
+          - name: transaction_id
+            tests: [unique, not_null]
+          - name: transaction_type
+            tests:
+              - accepted_values:
+                  values: ['new_contract', 'renewal', 'upsell', 'downgrade', 'churn', 'refund']
+
+  - name: nexus_ai
+    database: NEXUS_APP
+    schema: AI
+    description: "Camada de IA — scores, recomendações e chunks de documentos."
+
+    tables:
+      - name: churn_scores
+        description: "Scores de churn do modelo Snowpark ML."
+        columns:
+          - name: score_id
+            tests: [unique, not_null]
+          - name: churn_probability
+            tests:
+              - not_null
+              - dbt_utils.accepted_range:
+                  min_value: 0
+                  max_value: 1
+          - name: risk_level
+            tests:
+              - accepted_values:
+                  values: ['HIGH', 'MEDIUM', 'LOW']
+
+      - name: recommendations
+        description: "Recomendações geradas por regras + Cortex Complete."
+        columns:
+          - name: recommendation_id
+            tests: [unique, not_null]
+          - name: priority
+            tests:
+              - accepted_values:
+                  values: ['HIGH', 'MEDIUM', 'LOW']
+          - name: status
+            tests:
+              - accepted_values:
+                  values: ['pending', 'in_progress', 'completed', 'dismissed', 'snoozed']

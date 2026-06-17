@@ -1,0 +1,32 @@
+# profiles.yml — NÃO commitar credenciais reais
+# Copiar para ~/.dbt/profiles.yml ou usar variáveis de ambiente
+
+nexus_snowflake:
+  target: dev
+  outputs:
+
+    dev:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"        # ex: abc123.us-east-1
+      user: "{{ env_var('SNOWFLAKE_USER') }}"
+      password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"       # ou usar authenticator: externalbrowser
+      role: NEXUS_DATA_ENGINEER
+      database: NEXUS_APP
+      warehouse: NEXUS_COMPUTE_WH
+      schema: STAGING
+      threads: 4
+      client_session_keep_alive: false
+      query_tag: "dbt-nexus-dev"
+
+    prod:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('SNOWFLAKE_USER') }}"
+      private_key_path: "{{ env_var('SNOWFLAKE_PRIVATE_KEY_PATH') }}"  # key-pair auth em prod
+      private_key_passphrase: "{{ env_var('SNOWFLAKE_PRIVATE_KEY_PASSPHRASE', '') }}"
+      role: NEXUS_DATA_ENGINEER
+      database: NEXUS_APP
+      warehouse: NEXUS_COMPUTE_WH
+      schema: STAGING
+      threads: 8
+      query_tag: "dbt-nexus-prod"

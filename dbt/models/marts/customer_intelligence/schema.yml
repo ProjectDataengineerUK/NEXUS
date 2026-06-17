@@ -1,0 +1,76 @@
+version: 2
+
+models:
+  - name: customer_360
+    description: >
+      Vista Gold consolidada 360° de cada cliente.
+      Combina cadastro, subscrições, tickets, uso de produto e scores de IA.
+      Gerada por dbt incrementalmente — merge diário sobre mudanças nas últimas 25h.
+    columns:
+      - name: customer_id
+        description: "PK — UUID único do cliente."
+        tests: [unique, not_null]
+
+      - name: org_id
+        description: "ID da organização — chave de isolamento multi-tenant."
+        tests: [not_null]
+
+      - name: health_score
+        description: "Score 0-100: 35% churn + 30% NPS + 25% uso + 10% SLA."
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 100
+
+      - name: churn_probability
+        description: "Probabilidade de churn 0-1 do modelo Snowpark ML."
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 1
+
+      - name: churn_risk_level
+        tests:
+          - accepted_values:
+              values: ['HIGH', 'MEDIUM', 'LOW']
+
+      - name: arr
+        description: "Annual Recurring Revenue em USD."
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+
+      - name: usage_trend
+        tests:
+          - accepted_values:
+              values: ['up', 'stable', 'down', 'no_data']
+
+      - name: sentiment_label
+        tests:
+          - accepted_values:
+              values: ['positive', 'neutral', 'negative']
+
+      - name: derived_lifecycle_stage
+        tests:
+          - accepted_values:
+              values: ['active', 'at_risk', 'churned']
+
+  - name: action_center
+    description: >
+      Fila priorizada de ações — recomendações ativas com contexto do cliente.
+      Materializada como table, atualizada a cada run dbt.
+    columns:
+      - name: recommendation_id
+        tests: [unique, not_null]
+
+      - name: priority
+        tests:
+          - accepted_values:
+              values: ['HIGH', 'MEDIUM', 'LOW']
+
+      - name: priority_score
+        description: "Score composto para ordenação: priority_weight × impacto_normalizado."
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0

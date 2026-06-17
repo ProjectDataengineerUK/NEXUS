@@ -1,0 +1,51 @@
+name: nexus_ai_dataops
+version: '1.0.0'
+config-version: 2
+
+profile: nexus_snowflake
+
+model-paths:  ["models"]
+analysis-paths: ["analyses"]
+test-paths:   ["tests"]
+seed-paths:   ["seeds"]
+macro-paths:  ["macros"]
+snapshot-paths: ["snapshots"]
+
+target-path:  "target"
+clean-targets: ["target", "dbt_packages"]
+
+vars:
+  org_id: "ORG-DEMO-001"          # sobrescrever por cliente em produção
+  churn_high_threshold: 0.70
+  churn_medium_threshold: 0.40
+  freshness_sla_hours: 24
+
+models:
+  nexus_ai_dataops:
+
+    staging:
+      +schema: STAGING
+      +materialized: view             # staging é sempre view — zero custo de storage
+      +tags: ["staging"]
+
+    intermediate:
+      +schema: INTERMEDIATE
+      +materialized: table
+      +tags: ["intermediate"]
+      +post-hook: "ALTER TABLE {{ this }} CLUSTER BY (org_id)"
+
+    marts:
+      +schema: MART
+      +tags: ["mart"]
+      customer_intelligence:
+        +materialized: incremental
+        +incremental_strategy: merge
+        +unique_key: customer_id
+      action_center:
+        +materialized: table
+
+seeds:
+  nexus_ai_dataops:
+    +schema: SEEDS
+    +column_types:
+      created_at: TIMESTAMP_TZ

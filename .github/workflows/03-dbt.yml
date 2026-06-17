@@ -1,0 +1,157 @@
+name: "03 · dbt — Pipeline de Transformação"
+
+on:
+  # Agendado: todo dia às 04h UTC (após o churn pipeline das 03h)
+  schedule:
+    - cron: "0 4 * * *"
+
+  # Manual: permite escolher target e seleção de modelos
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "dbt target"
+        required: true
+        default: "dev"
+        type: choice
+        options: [dev, prod]
+      select:
+        description: "Modelos a executar (ex: staging, marts.customer_intelligence)"
+        required: false
+        default: ""
+      full_refresh:
+        description: "Full refresh (--full-refresh)"
+        required: false
+        default: "false"
+        type: boolean
+
+  # Também roda após o deploy de artefatos
+  workflow_run:
+    workflows: ["02 · Deploy — Artefatos Snowflake"]
+    types: [completed]
+    branches: [main]
+
+jobs:
+  dbt-run:
+    name: "dbt run + test (${{ github.event.inputs.target || 'dev' }})"
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
+
+    env:
+      DBT_TARGET:           ${{ github.event.inputs.target || 'dev' }}
+      DBT_SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      DBT_SNOWFLAKE_USER:    ${{ secrets.SNOWFLAKE_USER }}
+      DBT_SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
+      DBT_SNOWFLAKE_ROLE:    NEXUS_DATA_ENGINEER
+      DBT_SNOWFLAKE_DATABASE: NEXUS_APP
+      DBT_SNOWFLAKE_WAREHOUSE: NEXUS_INGEST_WH
+      DBT_SNOWFLAKE_SCHEMA:  STAGING
+
+    defaults:
+      run:
+        working-directory: dbt
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Instalar dbt-snowflake
+        run: pip install dbt-snowflake==1.8.*
+
+      - name: Criar profiles.yml dinâmico
+        run: |
+          mkdir -p ~/.dbt
+          cat > ~/.dbt/profiles.yml << EOF
+          nexus_snowflake:
+            target: ${{ env.DBT_TARGET }}
+            outputs:
+              dev:
+                type: snowflake
+                account: ${DBT_SNOWFLAKE_ACCOUNT}
+                user: ${DBT_SNOWFLAKE_USER}
+                password: ${DBT_SNOWFLAKE_PASSWORD}
+                role: ${DBT_SNOWFLAKE_ROLE}
+                database: ${DBT_SNOWFLAKE_DATABASE}
+                warehouse: ${DBT_SNOWFLAKE_WAREHOUSE}
+                schema: ${DBT_SNOWFLAKE_SCHEMA}
+                threads: 4
+              prod:
+                type: snowflake
+                account: ${{ secrets.SNOWFLAKE_PROD_ACCOUNT }}
+                user: ${{ secrets.SNOWFLAKE_PROD_USER }}
+                password: ${{ secrets.SNOWFLAKE_PROD_PASSWORD }}
+                role: NEXUS_DATA_ENGINEER
+                database: NEXUS_APP
+                warehouse: NEXUS_INGEST_WH
+                schema: STAGING
+                threads: 8
+          EOF
+
+      - name: dbt deps
+        run: dbt deps
+
+      - name: dbt debug
+        run: dbt debug --target ${{ env.DBT_TARGET }}
+
+      - name: dbt run
+        run: |
+          ARGS="--target ${{ env.DBT_TARGET }}"
+          if [ -n "${{ github.event.inputs.select }}" ]; then
+            ARGS="$ARGS --select ${{ github.event.inputs.select }}"
+          fi
+          if [ "${{ github.event.inputs.full_refresh }}" = "true" ]; then
+            ARGS="$ARGS --full-refresh"
+          fi
+          dbt run $ARGS
+
+      - name: dbt test
+        run: |
+          ARGS="--target ${{ env.DBT_TARGET }}"
+          if [ -n "${{ github.event.inputs.select }}" ]; then
+            ARGS="$ARGS --select ${{ github.event.inputs.select }}"
+          fi
+          dbt test $ARGS
+
+      - name: dbt source freshness
+        run: dbt source freshness --target ${{ env.DBT_TARGET }}
+        continue-on-error: true
+
+      - name: Gerar docs dbt
+        if: env.DBT_TARGET == 'prod'
+        run: dbt docs generate --target prod
+
+      - name: Upload artefatos dbt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dbt-artifacts-${{ github.run_id }}
+          path: |
+            dbt/target/run_results.json
+            dbt/target/manifest.json
+            dbt/target/catalog.json
+          retention-days: 30
+
+      - name: Sumário de resultados
+        if: always()
+        run: |
+          python - <<'EOF'
+          import json, os
+          try:
+              with open("target/run_results.json") as f:
+                  results = json.load(f)
+              passed = sum(1 for r in results["results"] if r["status"] in ["success", "pass"])
+              failed = sum(1 for r in results["results"] if r["status"] in ["error", "fail"])
+              print(f"dbt results: {passed} ok, {failed} falhou")
+              if failed > 0:
+                  for r in results["results"]:
+                      if r["status"] in ["error", "fail"]:
+                          print(f"  FAIL: {r['unique_id']}")
+          except Exception as e:
+              print(f"Não foi possível ler run_results.json: {e}")
+          EOF

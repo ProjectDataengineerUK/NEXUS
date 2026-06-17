@@ -1,0 +1,236 @@
+name: "02 · Deploy — Artefatos Snowflake"
+
+# Roda após o terraform apply OU manualmente
+on:
+  workflow_run:
+    workflows: ["01 · Terraform — Infraestrutura Snowflake"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Ambiente alvo"
+        required: true
+        default: "dev"
+        type: choice
+        options: [dev, prod]
+      skip_sql:
+        description: "Pular scripts SQL (apenas subir arquivos)"
+        required: false
+        default: "false"
+        type: boolean
+
+jobs:
+  deploy-dev:
+    name: "Deploy artefatos (dev)"
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'dev')
+    environment: dev
+
+    env:
+      SNOWFLAKE_ACCOUNT:  ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_USER:     ${{ secrets.SNOWFLAKE_USER }}
+      SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
+      SNOWFLAKE_DATABASE: NEXUS_APP
+      SNOWFLAKE_ROLE:     SYSADMIN
+      SNOWFLAKE_WAREHOUSE: NEXUS_COMPUTE_WH
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependências
+        run: |
+          pip install snowflake-connector-python snowflake-snowpark-python
+
+      - name: Upload YAML configs (semantic model + agent)
+        run: |
+          python - <<'EOF'
+          import snowflake.connector, os, glob
+
+          conn = snowflake.connector.connect(
+              account=os.environ["SNOWFLAKE_ACCOUNT"],
+              user=os.environ["SNOWFLAKE_USER"],
+              password=os.environ["SNOWFLAKE_PASSWORD"],
+              database=os.environ["SNOWFLAKE_DATABASE"],
+              role=os.environ["SNOWFLAKE_ROLE"],
+              warehouse=os.environ["SNOWFLAKE_WAREHOUSE"],
+          )
+          cs = conn.cursor()
+
+          for f in glob.glob("snowflake/config/*.yaml"):
+              fname = os.path.basename(f)
+              print(f"  uploading {fname}")
+              cs.execute(f"""
+                  PUT file://{f} @NEXUS_APP.CORE.SEMANTIC_STAGE
+                  OVERWRITE = TRUE AUTO_COMPRESS = FALSE
+              """)
+
+          cs.close()
+          conn.close()
+          print("YAML configs uploaded.")
+          EOF
+
+      - name: Upload churn_model.py para ML stage
+        run: |
+          python - <<'EOF'
+          import snowflake.connector, os
+
+          conn = snowflake.connector.connect(
+              account=os.environ["SNOWFLAKE_ACCOUNT"],
+              user=os.environ["SNOWFLAKE_USER"],
+              password=os.environ["SNOWFLAKE_PASSWORD"],
+              database=os.environ["SNOWFLAKE_DATABASE"],
+              role=os.environ["SNOWFLAKE_ROLE"],
+              warehouse=os.environ["SNOWFLAKE_WAREHOUSE"],
+          )
+          cs = conn.cursor()
+          cs.execute("""
+              PUT file://snowflake/models/churn_model.py
+              @NEXUS_APP.CORE.ML_STAGE
+              OVERWRITE = TRUE AUTO_COMPRESS = FALSE
+          """)
+          cs.close()
+          conn.close()
+          print("churn_model.py uploaded.")
+          EOF
+
+      - name: Upload páginas Streamlit
+        run: |
+          python - <<'EOF'
+          import snowflake.connector, os, glob
+
+          conn = snowflake.connector.connect(
+              account=os.environ["SNOWFLAKE_ACCOUNT"],
+              user=os.environ["SNOWFLAKE_USER"],
+              password=os.environ["SNOWFLAKE_PASSWORD"],
+              database=os.environ["SNOWFLAKE_DATABASE"],
+              role=os.environ["SNOWFLAKE_ROLE"],
+              warehouse=os.environ["SNOWFLAKE_WAREHOUSE"],
+          )
+          cs = conn.cursor()
+
+          for f in glob.glob("app/streamlit/pages/*.py") + ["app/streamlit/Home.py"]:
+              fname = os.path.basename(f)
+              print(f"  uploading {fname}")
+              cs.execute(f"""
+                  PUT file://{f} @NEXUS_APP.CORE.APP_STAGE/streamlit/pages/
+                  OVERWRITE = TRUE AUTO_COMPRESS = FALSE
+              """)
+
+          cs.close()
+          conn.close()
+          print("Streamlit pages uploaded.")
+          EOF
+
+      - name: Executar scripts SQL de setup
+        if: ${{ github.event.inputs.skip_sql != 'true' }}
+        run: |
+          python - <<'EOF'
+          import snowflake.connector, os, glob
+
+          conn = snowflake.connector.connect(
+              account=os.environ["SNOWFLAKE_ACCOUNT"],
+              user=os.environ["SNOWFLAKE_USER"],
+              password=os.environ["SNOWFLAKE_PASSWORD"],
+              database=os.environ["SNOWFLAKE_DATABASE"],
+              role=os.environ["SNOWFLAKE_ROLE"],
+              warehouse=os.environ["SNOWFLAKE_WAREHOUSE"],
+          )
+          cs = conn.cursor()
+
+          scripts = sorted(glob.glob("snowflake/setup/*.sql"))
+          for script in scripts:
+              print(f"  running {os.path.basename(script)}")
+              with open(script) as f:
+                  sql = f.read()
+              for statement in sql.split(";"):
+                  stmt = statement.strip()
+                  if stmt and not stmt.startswith("--"):
+                      try:
+                          cs.execute(stmt)
+                      except Exception as e:
+                          # Ignorar erros de "já existe" (idempotente)
+                          if "already exists" not in str(e).lower():
+                              raise
+
+          cs.close()
+          conn.close()
+          print("Setup scripts executed.")
+          EOF
+
+      - name: Treinar modelo de churn inicial
+        run: |
+          python - <<'EOF'
+          import snowflake.connector, os
+
+          conn = snowflake.connector.connect(
+              account=os.environ["SNOWFLAKE_ACCOUNT"],
+              user=os.environ["SNOWFLAKE_USER"],
+              password=os.environ["SNOWFLAKE_PASSWORD"],
+              database=os.environ["SNOWFLAKE_DATABASE"],
+              role=os.environ["SNOWFLAKE_ROLE"],
+              warehouse=os.environ["SNOWFLAKE_WAREHOUSE"],
+          )
+          cs = conn.cursor()
+          cs.execute("CALL NEXUS_APP.CORE.SP_RUN_CHURN_PIPELINE('full')")
+          result = cs.fetchone()
+          print(f"Churn pipeline result: {result}")
+          cs.close()
+          conn.close()
+          EOF
+
+      - name: Criar Streamlit App (se não existir)
+        run: |
+          python - <<'EOF'
+          import snowflake.connector, os
+
+          conn = snowflake.connector.connect(
+              account=os.environ["SNOWFLAKE_ACCOUNT"],
+              user=os.environ["SNOWFLAKE_USER"],
+              password=os.environ["SNOWFLAKE_PASSWORD"],
+              database=os.environ["SNOWFLAKE_DATABASE"],
+              role=os.environ["SNOWFLAKE_ROLE"],
+              warehouse=os.environ["SNOWFLAKE_WAREHOUSE"],
+          )
+          cs = conn.cursor()
+          cs.execute("""
+              CREATE STREAMLIT IF NOT EXISTS NEXUS_APP.CORE.NEXUS_DASHBOARD
+                ROOT_LOCATION = '@NEXUS_APP.CORE.APP_STAGE/streamlit'
+                MAIN_FILE     = 'Home.py'
+                QUERY_WAREHOUSE = NEXUS_UI_WH
+          """)
+          cs.close()
+          conn.close()
+          print("Streamlit app ready.")
+          EOF
+
+  deploy-prod:
+    name: "Deploy artefatos (prod)"
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'prod'
+    environment: prod
+
+    env:
+      SNOWFLAKE_ACCOUNT:  ${{ secrets.SNOWFLAKE_PROD_ACCOUNT }}
+      SNOWFLAKE_USER:     ${{ secrets.SNOWFLAKE_PROD_USER }}
+      SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PROD_PASSWORD }}
+      SNOWFLAKE_DATABASE: NEXUS_APP
+      SNOWFLAKE_ROLE:     SYSADMIN
+      SNOWFLAKE_WAREHOUSE: NEXUS_COMPUTE_WH
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install snowflake-connector-python
+      - name: Deploy (reutiliza script)
+        run: bash scripts/deploy_snowflake.sh

@@ -1,0 +1,204 @@
+name: "04 · Release — Native App Package"
+
+# Disparo: git tag v*.*.* → empacota nova versão no Marketplace
+# Exemplo: git tag v1.1.0 && git push --tags
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version_label:
+        description: "Versão do App (ex: 1.1.0)"
+        required: true
+      environment:
+        description: "Conta Snowflake alvo"
+        required: true
+        default: "dev"
+        type: choice
+        options: [dev, prod]
+
+jobs:
+  package-native-app:
+    name: "Package Native App"
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'prod' }}
+
+    env:
+      SNOWFLAKE_ACCOUNT:  ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_USER:     ${{ secrets.SNOWFLAKE_USER }}
+      SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Derivar versão
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.version_label }}" ]; then
+            VERSION="${{ github.event.inputs.version_label }}"
+          else
+            # tag: v1.2.3 → 1_2_3
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          VERSION_SLUG=$(echo "$VERSION" | tr '.' '_')
+          echo "label=$VERSION" >> $GITHUB_OUTPUT
+          echo "slug=v${VERSION_SLUG}" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION (slug: v${VERSION_SLUG})"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar snowflake-connector
+        run: pip install snowflake-connector-python
+
+      - name: Upload artefatos do Native App para stage
+        run: |
+          python - <<'EOF'
+          import snowflake.connector, os, glob
+
+          conn = snowflake.connector.connect(
+              account=os.environ["SNOWFLAKE_ACCOUNT"],
+              user=os.environ["SNOWFLAKE_USER"],
+              password=os.environ["SNOWFLAKE_PASSWORD"],
+              role="ACCOUNTADMIN",
+              warehouse="NEXUS_COMPUTE_WH",
+          )
+          cs = conn.cursor()
+
+          # Stage base para o pacote
+          VERSION = os.environ["APP_VERSION_SLUG"]
+          STAGE   = f"@NEXUS_APP.CORE.APP_STAGE/{VERSION}"
+
+          files = [
+              ("snowflake/native_app/manifest.yml",    f"{STAGE}/"),
+              ("snowflake/native_app/setup_script.sql", f"{STAGE}/"),
+          ]
+
+          # Páginas Streamlit
+          for f in glob.glob("app/streamlit/**/*.py", recursive=True):
+              rel = os.path.relpath(f, "app/streamlit")
+              files.append((f, f"{STAGE}/streamlit/{os.path.dirname(rel)}/"))
+
+          for local_path, stage_path in files:
+              print(f"  PUT {local_path} → {stage_path}")
+              cs.execute(f"""
+                  PUT file://{local_path} {stage_path}
+                  OVERWRITE = TRUE AUTO_COMPRESS = FALSE
+              """)
+
+          cs.close()
+          conn.close()
+          print("All artifacts uploaded.")
+          EOF
+        env:
+          APP_VERSION_SLUG: ${{ steps.version.outputs.slug }}
+
+      - name: Criar versão no Application Package
+        run: |
+          python - <<'EOF'
+          import snowflake.connector, os
+
+          conn = snowflake.connector.connect(
+              account=os.environ["SNOWFLAKE_ACCOUNT"],
+              user=os.environ["SNOWFLAKE_USER"],
+              password=os.environ["SNOWFLAKE_PASSWORD"],
+              role="ACCOUNTADMIN",
+              warehouse="NEXUS_COMPUTE_WH",
+          )
+          cs = conn.cursor()
+
+          VERSION_LABEL = os.environ["APP_VERSION_LABEL"]
+          VERSION_SLUG  = os.environ["APP_VERSION_SLUG"]
+          STAGE         = f"@NEXUS_APP.CORE.APP_STAGE/{VERSION_SLUG}"
+
+          # Garantir que o package existe
+          cs.execute("""
+              CREATE APPLICATION PACKAGE IF NOT EXISTS NEXUS_AI_DATAOPS_PKG
+                  COMMENT = 'NEXUS AI DataOps — Enterprise AI Command Center'
+          """)
+
+          # Adicionar nova versão
+          cs.execute(f"""
+              ALTER APPLICATION PACKAGE NEXUS_AI_DATAOPS_PKG
+                  ADD VERSION {VERSION_SLUG}
+                  USING '{STAGE}'
+                  LABEL = '{VERSION_LABEL}'
+          """)
+
+          # Definir como versão padrão (release directive)
+          cs.execute(f"""
+              ALTER APPLICATION PACKAGE NEXUS_AI_DATAOPS_PKG
+                  SET DEFAULT RELEASE DIRECTIVE
+                  VERSION = {VERSION_SLUG}
+                  PATCH = 0
+          """)
+
+          print(f"Native App version {VERSION_SLUG} ({VERSION_LABEL}) released.")
+          cs.close()
+          conn.close()
+          EOF
+        env:
+          APP_VERSION_LABEL: ${{ steps.version.outputs.label }}
+          APP_VERSION_SLUG:  ${{ steps.version.outputs.slug }}
+
+      - name: Testar instalação (dev account)
+        if: github.event.inputs.environment == 'dev' || github.event_name == 'push'
+        run: |
+          python - <<'EOF'
+          import snowflake.connector, os
+
+          conn = snowflake.connector.connect(
+              account=os.environ["SNOWFLAKE_ACCOUNT"],
+              user=os.environ["SNOWFLAKE_USER"],
+              password=os.environ["SNOWFLAKE_PASSWORD"],
+              role="ACCOUNTADMIN",
+              warehouse="NEXUS_COMPUTE_WH",
+          )
+          cs = conn.cursor()
+
+          VERSION_SLUG = os.environ["APP_VERSION_SLUG"]
+
+          # Remover instalação de teste anterior
+          cs.execute("DROP APPLICATION IF EXISTS NEXUS_AI_DATAOPS_TEST CASCADE")
+
+          # Instalar em debug mode
+          cs.execute(f"""
+              CREATE APPLICATION NEXUS_AI_DATAOPS_TEST
+                  FROM APPLICATION PACKAGE NEXUS_AI_DATAOPS_PKG
+                  USING VERSION {VERSION_SLUG}
+                  DEBUG_MODE = TRUE
+          """)
+
+          print(f"Test installation successful: NEXUS_AI_DATAOPS_TEST ({VERSION_SLUG})")
+          cs.close()
+          conn.close()
+          EOF
+        env:
+          APP_VERSION_SLUG: ${{ steps.version.outputs.slug }}
+
+      - name: Criar GitHub Release
+        if: github.event_name == 'push'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: context.ref.replace('refs/tags/', ''),
+              name: `NEXUS AI DataOps ${{ steps.version.outputs.label }}`,
+              body: `## Snowflake Native App — v${{ steps.version.outputs.label }}\n\n` +
+                    `**App Package:** \`NEXUS_AI_DATAOPS_PKG\`\n` +
+                    `**Version slug:** \`${{ steps.version.outputs.slug }}\`\n\n` +
+                    `### Instalar\n` +
+                    `\`\`\`sql\n` +
+                    `CREATE APPLICATION NEXUS_AI_DATAOPS\n` +
+                    `  FROM APPLICATION PACKAGE NEXUS_AI_DATAOPS_PKG\n` +
+                    `  USING VERSION ${{ steps.version.outputs.slug }};\n` +
+                    `\`\`\``,
+              draft: false,
+              prerelease: false
+            });

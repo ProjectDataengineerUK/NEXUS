@@ -1,0 +1,285 @@
+name: nexus_revenue_model
+description: >
+  Modelo semântico NEXUS AI DataOps — Revenue, Customer Health e Churn Intelligence.
+  Cobre métricas de ARR, MRR, NPS, churn, uso de produto e tickets.
+  Use para responder perguntas executivas sobre clientes, receita e risco.
+
+tables:
+  - name: customer_360
+    description: Visão consolidada 360° de cada cliente com métricas de saúde, receita e risco.
+    base_table:
+      database: NEXUS_APP
+      schema: MART
+      table: CUSTOMER_360
+
+    primary_key:
+      columns:
+        - customer_id
+
+    dimensions:
+      - name: customer_id
+        synonyms: ["id do cliente", "código do cliente"]
+        description: Identificador único do cliente.
+        expr: customer_id
+        data_type: VARCHAR
+        unique: true
+
+      - name: customer_name
+        synonyms: ["nome", "empresa", "cliente", "conta"]
+        description: Nome da empresa cliente.
+        expr: customer_name
+        data_type: VARCHAR
+
+      - name: segment
+        synonyms: ["segmento", "porte", "tier"]
+        description: Segmento de mercado do cliente (ENTERPRISE, MID_MARKET, SMB).
+        expr: segment
+        data_type: VARCHAR
+
+      - name: region
+        synonyms: ["região", "geography", "localização"]
+        description: Região geográfica do cliente.
+        expr: region
+        data_type: VARCHAR
+
+      - name: industry
+        synonyms: ["indústria", "setor", "vertical"]
+        description: Setor de atuação do cliente.
+        expr: industry
+        data_type: VARCHAR
+
+      - name: lifecycle_stage
+        synonyms: ["status", "estágio", "situação"]
+        description: Estágio do ciclo de vida — active, at_risk, churned.
+        expr: lifecycle_stage
+        data_type: VARCHAR
+
+      - name: churn_risk_level
+        synonyms: ["risco de churn", "nível de risco", "risco"]
+        description: Nível de risco de cancelamento — HIGH, MEDIUM, LOW.
+        expr: churn_risk_level
+        data_type: VARCHAR
+
+      - name: sentiment_label
+        synonyms: ["sentimento", "satisfação nos tickets", "humor"]
+        description: Sentimento médio nos tickets — positive, neutral, negative.
+        expr: sentiment_label
+        data_type: VARCHAR
+
+      - name: usage_trend
+        synonyms: ["tendência de uso", "engajamento", "trend"]
+        description: Tendência de uso do produto nos últimos 7 vs 30 dias — up, stable, down, no_data.
+        expr: usage_trend
+        data_type: VARCHAR
+
+      - name: nearest_renewal_date
+        synonyms: ["data de renovação", "vencimento", "renewal"]
+        description: Data da próxima renovação de subscrição.
+        expr: nearest_renewal_date
+        data_type: DATE
+
+      - name: customer_since
+        synonyms: ["data de entrada", "início do contrato", "onboarding"]
+        description: Data de cadastro do cliente.
+        expr: customer_since
+        data_type: TIMESTAMP_TZ
+
+    measures:
+      - name: total_arr
+        synonyms: ["ARR", "receita anual", "annual recurring revenue", "receita recorrente anual"]
+        description: Annual Recurring Revenue total do cliente em USD.
+        expr: arr
+        data_type: NUMBER
+        agg: sum
+        agg_time_dimension: customer_since
+
+      - name: total_mrr
+        synonyms: ["MRR", "receita mensal", "monthly recurring revenue"]
+        description: Monthly Recurring Revenue do cliente em USD.
+        expr: mrr
+        data_type: NUMBER
+        agg: sum
+
+      - name: churn_probability
+        synonyms: ["probabilidade de churn", "risco de cancelamento", "churn score"]
+        description: Probabilidade de cancelamento entre 0 e 1 (1 = 100% de risco).
+        expr: churn_probability
+        data_type: NUMBER
+        agg: avg
+
+      - name: health_score
+        synonyms: ["health score", "score de saúde", "pontuação do cliente"]
+        description: Score de saúde do cliente de 0 a 100. Combina churn, NPS, uso e SLA.
+        expr: health_score
+        data_type: NUMBER
+        agg: avg
+
+      - name: nps_score
+        synonyms: ["NPS", "net promoter score", "nota de satisfação"]
+        description: Net Promoter Score do cliente (-100 a 100).
+        expr: nps_score
+        data_type: NUMBER
+        agg: avg
+
+      - name: revenue_at_risk
+        synonyms: ["receita em risco", "ARR em risco", "risco financeiro"]
+        description: ARR em risco de cancelamento segundo o modelo de churn.
+        expr: expected_revenue_at_risk
+        data_type: NUMBER
+        agg: sum
+
+      - name: open_tickets
+        synonyms: ["tickets abertos", "chamados abertos", "suporte aberto"]
+        description: Número de tickets de suporte em aberto.
+        expr: open_tickets
+        data_type: NUMBER
+        agg: sum
+
+      - name: sla_breaches
+        synonyms: ["violações de SLA", "SLA breach", "quebras de SLA"]
+        description: Número de tickets que violaram o SLA.
+        expr: sla_breaches
+        data_type: NUMBER
+        agg: sum
+
+      - name: events_30d
+        synonyms: ["eventos de uso", "uso nos últimos 30 dias", "atividade"]
+        description: Total de eventos de produto registrados nos últimos 30 dias.
+        expr: events_30d
+        data_type: NUMBER
+        agg: sum
+
+      - name: active_days_30d
+        synonyms: ["dias ativos", "dias de uso", "engajamento mensal"]
+        description: Número de dias com atividade nos últimos 30 dias.
+        expr: active_days_30d
+        data_type: NUMBER
+        agg: avg
+
+      - name: days_since_last_activity
+        synonyms: ["dias sem atividade", "inatividade", "último acesso"]
+        description: Dias desde a última atividade registrada.
+        expr: days_since_last_activity
+        data_type: NUMBER
+        agg: avg
+
+      - name: customer_count
+        synonyms: ["número de clientes", "total de contas", "quantidade de clientes"]
+        description: Contagem de clientes.
+        expr: "1"
+        data_type: NUMBER
+        agg: count
+
+  - name: transactions
+    description: Transações financeiras — novos contratos, renovações, upsells e churn.
+    base_table:
+      database: NEXUS_APP
+      schema: CORE
+      table: TRANSACTIONS
+
+    primary_key:
+      columns:
+        - transaction_id
+
+    dimensions:
+      - name: transaction_type
+        synonyms: ["tipo de transação", "motivo", "categoria"]
+        description: Tipo — new_contract, renewal, upsell, churn.
+        expr: transaction_type
+        data_type: VARCHAR
+
+      - name: status
+        synonyms: ["status da transação"]
+        description: Status — completed, pending, failed.
+        expr: status
+        data_type: VARCHAR
+
+      - name: transaction_date
+        synonyms: ["data da transação", "data de pagamento"]
+        description: Data em que a transação ocorreu.
+        expr: transaction_date
+        data_type: DATE
+
+      - name: currency
+        synonyms: ["moeda"]
+        description: Moeda da transação.
+        expr: currency
+        data_type: VARCHAR
+
+    measures:
+      - name: total_revenue
+        synonyms: ["receita total", "faturamento", "revenue"]
+        description: Soma dos valores de todas as transações.
+        expr: amount
+        data_type: NUMBER
+        agg: sum
+        agg_time_dimension: transaction_date
+
+      - name: transaction_count
+        synonyms: ["número de transações", "contagem de vendas"]
+        description: Contagem de transações.
+        expr: "1"
+        data_type: NUMBER
+        agg: count
+        agg_time_dimension: transaction_date
+
+relationships:
+  - name: customer_transactions
+    left_table: customer_360
+    right_table: transactions
+    join_type: LEFT_OUTER
+    relationship_columns:
+      - left_column:  customer_id
+        right_column: customer_id
+
+verified_queries:
+  - name: arr_por_segmento
+    question: "Qual é o ARR total por segmento de cliente?"
+    verified_at: "2025-01-01"
+    sql: |
+      SELECT segment, SUM(arr) AS total_arr, COUNT(*) AS customers
+      FROM NEXUS_APP.MART.CUSTOMER_360
+      WHERE lifecycle_stage != 'churned'
+      GROUP BY segment
+      ORDER BY total_arr DESC
+
+  - name: clientes_alto_risco
+    question: "Quais clientes estão em alto risco de churn?"
+    verified_at: "2025-01-01"
+    sql: |
+      SELECT customer_name, arr, churn_probability, expected_revenue_at_risk, churn_recommended_action
+      FROM NEXUS_APP.MART.CUSTOMER_360
+      WHERE churn_risk_level = 'HIGH'
+      ORDER BY expected_revenue_at_risk DESC
+
+  - name: renovacoes_proximas_90d
+    question: "Quais contratos vencem nos próximos 90 dias?"
+    verified_at: "2025-01-01"
+    sql: |
+      SELECT customer_name, arr, nearest_renewal_date, churn_risk_level, nps_score
+      FROM NEXUS_APP.MART.CUSTOMER_360
+      WHERE nearest_renewal_date <= DATEADD('day', 90, CURRENT_DATE())
+        AND lifecycle_stage = 'active'
+      ORDER BY nearest_renewal_date ASC
+
+  - name: health_score_medio_por_segmento
+    question: "Qual é o health score médio por segmento?"
+    verified_at: "2025-01-01"
+    sql: |
+      SELECT segment, ROUND(AVG(health_score), 1) AS avg_health, COUNT(*) AS customers
+      FROM NEXUS_APP.MART.CUSTOMER_360
+      WHERE lifecycle_stage != 'churned'
+      GROUP BY segment
+      ORDER BY avg_health DESC
+
+  - name: receita_em_risco_total
+    question: "Qual é o total de ARR em risco?"
+    verified_at: "2025-01-01"
+    sql: |
+      SELECT
+        SUM(expected_revenue_at_risk) AS total_arr_at_risk,
+        COUNT(*) AS at_risk_customers,
+        SUM(arr) AS total_arr,
+        ROUND(SUM(expected_revenue_at_risk) / NULLIF(SUM(arr), 0) * 100, 1) AS pct_arr_at_risk
+      FROM NEXUS_APP.MART.CUSTOMER_360
+      WHERE churn_risk_level IN ('HIGH', 'MEDIUM')

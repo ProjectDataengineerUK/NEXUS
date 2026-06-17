@@ -1,0 +1,62 @@
+version: 2
+
+models:
+  - name: action_center
+    description: >
+      Fila priorizada de ações — recomendações ativas com contexto do cliente.
+      Materializada como table, atualizada a cada run dbt.
+      Exclui itens com status completed ou dismissed.
+    columns:
+      - name: recommendation_id
+        description: "PK — UUID da recomendação."
+        tests: [unique, not_null]
+
+      - name: org_id
+        tests: [not_null]
+
+      - name: customer_id
+        tests: [not_null]
+
+      - name: customer_name
+        tests: [not_null]
+
+      - name: recommendation_type
+        tests:
+          - accepted_values:
+              values: ['churn_risk', 'upsell', 'renewal', 'health_improvement', 'support_escalation']
+
+      - name: priority
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['HIGH', 'MEDIUM', 'LOW']
+
+      - name: priority_score
+        description: "Score composto: priority_weight × impacto_financeiro_normalizado."
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+
+      - name: status
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['pending', 'in_progress', 'snoozed']
+
+      - name: churn_risk_level
+        tests:
+          - accepted_values:
+              values: ['HIGH', 'MEDIUM', 'LOW']
+
+      - name: health_score
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 100
+
+      - name: churn_probability
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 1
