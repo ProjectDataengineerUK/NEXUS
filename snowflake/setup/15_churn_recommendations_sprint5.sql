@@ -14,9 +14,9 @@ CREATE STAGE IF NOT EXISTS NEXUS_APP.CORE.ML_STAGE
     ENCRYPTION        = (TYPE = 'SNOWFLAKE_SSE')
     COMMENT           = 'Artefatos de modelos Snowpark ML';
 
-GRANT READ  ON STAGE NEXUS_APP.CORE.ML_STAGE TO ROLE NEXUS_ANALYST;
 GRANT READ  ON STAGE NEXUS_APP.CORE.ML_STAGE TO ROLE NEXUS_ADMIN;
 GRANT WRITE ON STAGE NEXUS_APP.CORE.ML_STAGE TO ROLE NEXUS_ADMIN;
+GRANT READ  ON STAGE NEXUS_APP.CORE.ML_STAGE TO ROLE NEXUS_ANALYST;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Stored Procedure: Pipeline de churn (scoring + recomendações)

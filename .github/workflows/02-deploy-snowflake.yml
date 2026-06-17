@@ -221,7 +221,7 @@ jobs:
           IGNORABLE = ("already exists", "duplicate", "unique constraint",
                        "primary key constraint", "object already exists",
                        "already set", "already added", "already applied",
-                       "already has",
+                       "already has", "already granted",
                        "not available for trial",   # Cortex / premium features on trial
                        "not supported for trial",
                        "feature not enabled",
@@ -229,7 +229,8 @@ jobs:
                        "cortex search service",     # GRANT on skipped cortex search svc
                        "does not exist or not authorized",
                        "not found in stage",        # handler file missing (upload via 04-release)
-                       "application package"        # Native App pkg not available on trial
+                       "application package",       # Native App pkg not available on trial
+                       "grant/revoke order"         # stage READ/WRITE order via role inheritance
                        )
 
           for script in scripts:
