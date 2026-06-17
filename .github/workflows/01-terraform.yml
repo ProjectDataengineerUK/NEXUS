@@ -164,3 +164,4 @@ jobs:
           SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PROD_PASSWORD }}
           TF_VAR_snowflake_role: "SYSADMIN"
         run: terraform apply -auto-approve -input=false
+# updated qua. 17 jun 2026 11:41:06 -03
