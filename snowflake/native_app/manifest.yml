@@ -3,32 +3,8 @@ manifest_version: 1
 version:
   name: v1_0
   label: "1.0.0"
-  comment: >
-    NEXUS AI DataOps v1.0 — Enterprise AI Command Center for Snowflake.
-    Customer & Revenue Intelligence with Cortex AI, Dynamic Tables, and Streamlit.
+  comment: "NEXUS AI DataOps v1.0 — Enterprise AI Command Center for Snowflake"
 
 artifacts:
   setup_script: setup_script.sql
   readme: readme.md
-  extension_code: false
-
-privileges:
-  - CREATE WAREHOUSE
-  - CREATE DATABASE
-  - EXECUTE TASK
-  - EXECUTE MANAGED TASK
-
-references:
-  - name: consumer_customer_data
-    label: "Customer Data Table"
-    description: >
-      Reference to a table or view in the consumer account containing
-      customer records (customer_id, name, email, segment, region).
-    object_type: TABLE
-    register_callback: NEXUS_APP.CORE.SP_REGISTER_CONSUMER_REF
-    required_at_setup: false
-
-configuration:
-  trace_level: ALWAYS
-  log_level: INFO
-  metric_level: ALL
