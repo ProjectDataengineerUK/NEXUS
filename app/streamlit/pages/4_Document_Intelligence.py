@@ -3,11 +3,11 @@ NEXUS AI DataOps — Document Intelligence
 Sprint 3: upload de documentos, chunking, Cortex Search e chat com documentos.
 """
 
-import json
 import uuid
 import streamlit as st
 import pandas as pd
-from snowflake.snowpark.context import get_active_session
+from utils.snowflake_client import run_query, get_session, cortex_search as _cortex_search, cortex_complete as _cortex_complete
+from utils.auth import get_org_id
 
 st.set_page_config(
     page_title="Document Intelligence · NEXUS",
@@ -15,57 +15,20 @@ st.set_page_config(
     layout="wide",
 )
 
-ORG_ID = "ORG-DEMO-001"
+ORG_ID = get_org_id()
 SEARCH_SERVICE = "AI.DOC_SEARCH"
 CHAT_MODEL = "mistral-large2"
 
-
-@st.cache_resource
-def get_session():
-    return get_active_session()
-
-
-def run_query(sql: str) -> pd.DataFrame:
-    return get_session().sql(sql).to_pandas()
+DOC_COLUMNS = ["chunk_text", "document_name", "document_type",
+               "document_id", "section_title", "chunk_index"]
 
 
 def cortex_search(query: str, doc_filter: str | None = None, limit: int = 5) -> list[dict]:
-    """Executa busca semântica via Cortex Search REST API."""
-    session = get_session()
-
-    filter_clause = ""
-    if doc_filter:
-        filter_clause = f', "filter": {{"@eq": {{"document_id": "{doc_filter}"}}}}'
-
-    search_sql = f"""
-        SELECT PARSE_JSON(
-            SNOWFLAKE.CORTEX.SEARCH_PREVIEW(
-                '{SEARCH_SERVICE}',
-                '{{
-                    "query":   "{query.replace('"', '').replace("'", "")}",
-                    "columns": ["chunk_text","document_name","document_type",
-                                "document_id","section_title","chunk_index"],
-                    "limit":   {limit}
-                    {filter_clause}
-                }}'
-            )
-        ) AS results
-    """
-    rows = session.sql(search_sql).collect()
-    if not rows:
-        return []
-    raw = rows[0]["RESULTS"]
-    if isinstance(raw, str):
-        raw = json.loads(raw)
-    return raw.get("results", [])
+    return _cortex_search(query, SEARCH_SERVICE, DOC_COLUMNS, limit, doc_filter)
 
 
 def cortex_complete(prompt: str) -> str:
-    """Chama Cortex Complete e retorna o texto gerado."""
-    safe = prompt.replace("'", "\\'").replace("\\n", " ")
-    sql = f"SELECT SNOWFLAKE.CORTEX.COMPLETE('{CHAT_MODEL}', '{safe}') AS answer"
-    rows = get_session().sql(sql).collect()
-    return rows[0]["ANSWER"] if rows else ""
+    return _cortex_complete(prompt, CHAT_MODEL)
 
 
 # ─── Sidebar ──────────────────────────────────────────────────────────────────

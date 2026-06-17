@@ -3,13 +3,12 @@ NEXUS AI DataOps — AI Chat
 Sprint 4: Cortex Analyst (NL→SQL), Executive Agent (multi-tool), perguntas sugeridas.
 """
 
-import json
-import time
 import uuid
-import requests
 import streamlit as st
 import pandas as pd
-from snowflake.snowpark.context import get_active_session
+from utils.snowflake_client import run_query as run_sql, call_cortex_analyst as _call_analyst, call_cortex_agent as _call_agent
+from utils.auth import get_org_id, get_current_user, get_current_role
+from utils.audit_logger import log_analyst_query
 
 st.set_page_config(
     page_title="AI Chat · NEXUS",
@@ -17,141 +16,55 @@ st.set_page_config(
     layout="wide",
 )
 
-ORG_ID            = "ORG-DEMO-001"
-SEMANTIC_MODEL    = "@CORE.SEMANTIC_STAGE/nexus_revenue.yaml"
-DOC_SEARCH_SVC    = "AI.DOC_SEARCH"
-ANALYST_MODEL     = "mistral-large2"
-AGENT_MODEL       = "claude-3-5-sonnet"
+ORG_ID         = get_org_id()
+SEMANTIC_MODEL = "@CORE.SEMANTIC_STAGE/nexus_revenue.yaml"
+DOC_SEARCH_SVC = "AI.DOC_SEARCH"
+ANALYST_MODEL  = "mistral-large2"
+AGENT_MODEL    = "claude-3-5-sonnet"
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
-@st.cache_resource
-def get_session():
-    return get_active_session()
-
-
-def run_sql(sql: str) -> pd.DataFrame:
-    return get_session().sql(sql).to_pandas()
-
-
-def _snowflake_headers() -> tuple[str, dict]:
-    """Retorna (host, headers) para chamadas REST à API Snowflake."""
-    session = get_session()
-    token   = session.connection.rest.token
-    host    = session.connection.host
-    headers = {
-        "Authorization": f'Snowflake Token="{token}"',
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
-    return host, headers
-
-
 def call_cortex_analyst(question: str) -> dict:
-    """Chama Cortex Analyst REST API — retorna {sql, text, error}."""
-    host, headers = _snowflake_headers()
-    url = f"https://{host}/api/v2/cortex/analyst/message"
-
-    payload = {
-        "messages": [
-            {"role": "user", "content": [{"type": "text", "text": question}]}
-        ],
-        "semantic_model_file": SEMANTIC_MODEL,
-    }
-
-    t0  = time.time()
-    try:
-        resp = requests.post(url, headers=headers, json=payload, timeout=60)
-        latency_ms = int((time.time() - t0) * 1000)
-        resp.raise_for_status()
-        data = resp.json()
-
-        result = {"sql": None, "text": None, "error": None, "latency_ms": latency_ms}
-
-        for item in data.get("message", {}).get("content", []):
-            if item["type"] == "sql":
-                result["sql"] = item["statement"]
-            elif item["type"] == "text":
-                result["text"] = item.get("text", "")
-
-        return result
-
-    except Exception as e:
-        return {"sql": None, "text": None, "error": str(e), "latency_ms": 0}
+    return _call_analyst(question, SEMANTIC_MODEL)
 
 
 def call_cortex_agent(messages: list[dict]) -> dict:
-    """Chama Cortex Agents REST API — retorna {text, tool_calls, error}."""
-    host, headers = _snowflake_headers()
-    url = f"https://{host}/api/v2/cortex/agent:run"
-
-    payload = {
-        "model": AGENT_MODEL,
-        "messages": messages,
-        "tools": [
-            {
-                "tool_spec": {
-                    "type": "cortex_analyst_text_to_sql",
-                    "name": "revenue_analyst",
-                    "semantic_model_file": SEMANTIC_MODEL,
-                }
-            },
-            {
-                "tool_spec": {
-                    "type": "cortex_search",
-                    "name": "document_search",
-                    "service_name": DOC_SEARCH_SVC,
-                    "max_results": 4,
-                }
-            },
-        ],
-        "tool_resources": {
-            "revenue_analyst": {"semantic_model_file": SEMANTIC_MODEL},
-            "document_search": {"name": DOC_SEARCH_SVC},
+    tools = [
+        {
+            "tool_spec": {
+                "type": "cortex_analyst_text_to_sql",
+                "name": "revenue_analyst",
+                "semantic_model_file": SEMANTIC_MODEL,
+            }
         },
+        {
+            "tool_spec": {
+                "type": "cortex_search",
+                "name": "document_search",
+                "service_name": DOC_SEARCH_SVC,
+                "max_results": 4,
+            }
+        },
+    ]
+    tool_resources = {
+        "revenue_analyst": {"semantic_model_file": SEMANTIC_MODEL},
+        "document_search": {"name": DOC_SEARCH_SVC},
     }
-
-    try:
-        resp = requests.post(url, headers=headers, json=payload, timeout=90)
-        resp.raise_for_status()
-
-        full_text  = ""
-        tool_calls = []
-
-        for line in resp.text.splitlines():
-            if not line.startswith("data:"):
-                continue
-            chunk = json.loads(line[5:].strip())
-            delta = chunk.get("choices", [{}])[0].get("delta", {})
-
-            for item in delta.get("content", []):
-                if item.get("type") == "text":
-                    full_text += item.get("text", "")
-                elif item.get("type") == "tool_use":
-                    tool_calls.append(item)
-
-        return {"text": full_text, "tool_calls": tool_calls, "error": None}
-
-    except Exception as e:
-        return {"text": None, "tool_calls": [], "error": str(e)}
+    return _call_agent(messages, AGENT_MODEL, tools, tool_resources)
 
 
 def log_query(question: str, sql: str | None, latency_ms: int, session_id: str):
-    """Persiste query no audit log (best-effort)."""
-    try:
-        q = question.replace("'", "''")
-        s = (sql or "").replace("'", "''")[:4000]
-        run_sql(f"""
-            INSERT INTO AUDIT.CORTEX_ANALYST_LOG
-                (org_id, user_name, user_role, question, generated_sql,
-                 model_used, latency_ms, session_id)
-            VALUES
-                ('{ORG_ID}', CURRENT_USER(), CURRENT_ROLE(), '{q}', '{s}',
-                 '{ANALYST_MODEL}', {latency_ms}, '{session_id}')
-        """)
-    except Exception:
-        pass
+    log_analyst_query(
+        org_id=ORG_ID,
+        user_name=get_current_user(),
+        user_role=get_current_role(),
+        question=question,
+        sql=sql,
+        model=ANALYST_MODEL,
+        latency_ms=latency_ms,
+        session_id=session_id,
+    )
 
 
 def auto_chart(df: pd.DataFrame, question: str):

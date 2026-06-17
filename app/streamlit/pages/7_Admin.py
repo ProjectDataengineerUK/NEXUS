@@ -5,7 +5,8 @@ Sprint 6: RBAC, masking policies, audit log, configurações do app.
 
 import streamlit as st
 import pandas as pd
-from snowflake.snowpark.context import get_active_session
+from utils.snowflake_client import run_query as run_sql, get_session
+from utils.auth import get_org_id
 
 st.set_page_config(
     page_title="Admin · NEXUS",
@@ -13,16 +14,7 @@ st.set_page_config(
     layout="wide",
 )
 
-ORG_ID = "ORG-DEMO-001"
-
-
-@st.cache_resource
-def get_session():
-    return get_active_session()
-
-
-def run_sql(sql: str) -> pd.DataFrame:
-    return get_session().sql(sql).to_pandas()
+ORG_ID = get_org_id()
 
 
 def execute(sql: str):

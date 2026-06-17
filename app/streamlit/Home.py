@@ -5,7 +5,8 @@ Sprint 1: KPIs críticos, alertas de IA, recomendações e riscos.
 
 import streamlit as st
 import pandas as pd
-from snowflake.snowpark.context import get_active_session
+from utils.snowflake_client import run_query
+from utils.auth import get_org_id
 
 st.set_page_config(
     page_title="NEXUS AI DataOps",
@@ -14,17 +15,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-ORG_ID = "ORG-DEMO-001"
-
-
-@st.cache_data(ttl=300)
-def get_session():
-    return get_active_session()
-
-
-def run_query(sql: str) -> pd.DataFrame:
-    session = get_session()
-    return session.sql(sql).to_pandas()
+ORG_ID = get_org_id()
 
 
 # ─── Sidebar ────────────────────────────────────────────────────────────────

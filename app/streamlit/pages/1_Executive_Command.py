@@ -5,16 +5,12 @@ ARR, MRR, churn trends, NPS, top opportunities, top risks.
 
 import streamlit as st
 import pandas as pd
-from snowflake.snowpark.context import get_active_session
+from utils.snowflake_client import run_query
+from utils.auth import get_org_id
 
 st.set_page_config(page_title="Executive Command · NEXUS", page_icon="📊", layout="wide")
 
-ORG_ID = "ORG-DEMO-001"
-
-
-@st.cache_data(ttl=300)
-def run_query(sql: str) -> pd.DataFrame:
-    return get_active_session().sql(sql).to_pandas()
+ORG_ID = get_org_id()
 
 
 st.markdown("## 📊 Executive Command")

@@ -6,7 +6,8 @@ Sprint 5: fila priorizada de ações, churn scores, status workflow.
 import json
 import streamlit as st
 import pandas as pd
-from snowflake.snowpark.context import get_active_session
+from utils.snowflake_client import run_query as run_sql, get_session
+from utils.auth import get_org_id
 
 st.set_page_config(
     page_title="Action Center · NEXUS",
@@ -14,7 +15,7 @@ st.set_page_config(
     layout="wide",
 )
 
-ORG_ID = "ORG-DEMO-001"
+ORG_ID = get_org_id()
 
 PRIORITY_COLOR = {"HIGH": "🔴", "MEDIUM": "🟡", "LOW": "🟢"}
 STATUS_LABEL   = {
@@ -40,15 +41,6 @@ OWNER_LABEL = {
     "engineering":      "Engenharia",
     "data_engineering": "Data Eng",
 }
-
-
-@st.cache_resource
-def get_session():
-    return get_active_session()
-
-
-def run_sql(sql: str) -> pd.DataFrame:
-    return get_session().sql(sql).to_pandas()
 
 
 def call_sp(sp_call: str):
