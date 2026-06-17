@@ -35,9 +35,9 @@ CREATE OR REPLACE PROCEDURE NEXUS_APP.CORE.SP_PROCESS_DOCUMENT(
 RETURNS VARCHAR
 LANGUAGE PYTHON
 RUNTIME_VERSION = '3.11'
-PACKAGES = ('snowflake-snowpark-python')
-EXECUTE AS CALLER
+PACKAGES = ('snowflake-snowpark-python', 'pandas')
 HANDLER = 'process_document'
+EXECUTE AS CALLER
 AS $$
 import json
 import uuid
@@ -85,13 +85,14 @@ def process_document(session, p_document_id, p_org_id, p_stage_path,
             return "ERROR: texto extraído vazio"
 
         # 2. Gera sumário com Cortex
+        safe_summary_text = full_text[:3000].replace("'", "''")
         summary_sql = f"""
             SELECT SNOWFLAKE.CORTEX.COMPLETE(
                 'mistral-large2',
                 CONCAT(
                     'Resuma em 3 frases o seguinte documento corporativo. ',
-                    'Identifique partes, valores e datas críticas se houver:\n\n',
-                    LEFT($${full_text[:3000]}$$, 3000)
+                    'Identifique partes, valores e datas críticas se houver:',
+                    LEFT('{safe_summary_text}', 3000)
                 )
             ) AS summary
         """
@@ -99,6 +100,10 @@ def process_document(session, p_document_id, p_org_id, p_stage_path,
         summary = summary_result[0]["SUMMARY"] if summary_result else ""
 
         # 3. Insere registro em CORE.DOCUMENTS
+        safe_document_name = p_document_name.replace("'", "''")
+        safe_stage_path = p_stage_path.replace("'", "''")
+        safe_extracted_text = full_text.replace("'", "''")[:50000]
+        safe_summary = summary.replace("'", "''")
         session.sql(f"""
             MERGE INTO NEXUS_APP.CORE.DOCUMENTS AS tgt
             USING (SELECT
@@ -106,11 +111,11 @@ def process_document(session, p_document_id, p_org_id, p_stage_path,
                 '{p_org_id}'       AS org_id,
                 '{p_entity_id}'    AS entity_id,
                 '{p_entity_type}'  AS entity_type,
-                '{p_document_name.replace("'","''")}' AS document_name,
+                '{safe_document_name}' AS document_name,
                 '{p_document_type}'AS document_type,
-                '{p_stage_path.replace("'","''")}' AS stage_path,
-                $${full_text.replace("$$","$! $")[:50000]}$$ AS extracted_text,
-                '{summary.replace("'","''")}' AS summary,
+                '{safe_stage_path}' AS stage_path,
+                '{safe_extracted_text}' AS extracted_text,
+                '{safe_summary}' AS summary,
                 'completed'        AS processing_status,
                 CURRENT_TIMESTAMP() AS processed_at
             ) AS src ON tgt.document_id = src.document_id
