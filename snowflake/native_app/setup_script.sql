@@ -226,16 +226,20 @@ CREATE TABLE IF NOT EXISTS NEXUS_APP.CONFIG.APP_SETTINGS (
     PRIMARY KEY (setting_key)
 );
 
-INSERT INTO NEXUS_APP.CONFIG.APP_SETTINGS (setting_key, setting_value, description) VALUES
-    ('default_llm_model',        'mistral-large2',   'Modelo LLM padrão para Cortex Complete'),
-    ('churn_high_threshold',     '0.7',              'Score acima = risco HIGH'),
-    ('churn_medium_threshold',   '0.4',              'Score acima = risco MEDIUM'),
-    ('freshness_sla_hours',      '24',               'Horas máx sem refresh antes de alerta'),
-    ('audit_retention_days',     '365',              'Retenção de logs de auditoria'),
-    ('vertical_pack',            'saas_customer',    'Vertical Pack ativo'),
-    ('demo_mode',                'true',             'Usar dataset demo'),
-    ('enable_workflow_automation','false',           'Habilitar automações externas')
-ON CONFLICT (setting_key) DO NOTHING;
+MERGE INTO NEXUS_APP.CONFIG.APP_SETTINGS t
+USING (
+    SELECT 'default_llm_model'         AS setting_key, 'mistral-large2'  AS setting_value, 'Modelo LLM padrão para Cortex Complete' AS description
+    UNION ALL SELECT 'churn_high_threshold',     '0.7',    'Score acima = risco HIGH'
+    UNION ALL SELECT 'churn_medium_threshold',   '0.4',    'Score acima = risco MEDIUM'
+    UNION ALL SELECT 'freshness_sla_hours',      '24',     'Horas máx sem refresh antes de alerta'
+    UNION ALL SELECT 'audit_retention_days',     '365',    'Retenção de logs de auditoria'
+    UNION ALL SELECT 'vertical_pack',            'saas_customer', 'Vertical Pack ativo'
+    UNION ALL SELECT 'demo_mode',                'true',   'Usar dataset demo'
+    UNION ALL SELECT 'enable_workflow_automation','false', 'Habilitar automações externas'
+) s ON t.setting_key = s.setting_key
+WHEN NOT MATCHED THEN
+    INSERT (setting_key, setting_value, description)
+    VALUES (s.setting_key, s.setting_value, s.description);
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Stages internos
@@ -295,6 +299,10 @@ GRANT DATABASE ROLE SNOWFLAKE.CORTEX_USER TO APPLICATION ROLE NEXUS_ADMIN;
 -- Versioning
 -- ─────────────────────────────────────────────────────────────────────────────
 
-INSERT INTO NEXUS_APP.CONFIG.APP_SETTINGS (setting_key, setting_value, description)
-VALUES ('app_version', '1.0.0', 'NEXUS AI DataOps version installed')
-ON CONFLICT (setting_key) DO UPDATE SET setting_value = '1.0.0', updated_at = CURRENT_TIMESTAMP();
+MERGE INTO NEXUS_APP.CONFIG.APP_SETTINGS t
+USING (SELECT 'app_version' AS setting_key, '1.0.0' AS setting_value, 'NEXUS AI DataOps version installed' AS description) s
+ON t.setting_key = s.setting_key
+WHEN NOT MATCHED THEN
+    INSERT (setting_key, setting_value, description) VALUES (s.setting_key, s.setting_value, s.description)
+WHEN MATCHED THEN
+    UPDATE SET setting_value = '1.0.0', updated_at = CURRENT_TIMESTAMP();
