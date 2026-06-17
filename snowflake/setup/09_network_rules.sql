@@ -34,7 +34,4 @@ CREATE OR REPLACE NETWORK RULE NEXUS_APP.CONFIG.ALLOW_SERVICENOW_RULE
 --     ALLOWED_NETWORK_RULES = (NEXUS_APP.CONFIG.ALLOW_SLACK_RULE)
 --     ENABLED = FALSE;
 
-COMMENT ON DATABASE NEXUS_APP IS
-    'NEXUS AI DataOps — dados 100% dentro do perímetro Snowflake. '
-    'External Access Integrations desabilitadas por padrão. '
-    'Habilitar via Admin Console (M8) apenas se necessário.';
+COMMENT ON DATABASE NEXUS_APP IS 'NEXUS AI DataOps — dados 100% dentro do perímetro Snowflake. External Access Integrations desabilitadas por padrão. Habilitar via Admin Console (M8) apenas se necessário.';
