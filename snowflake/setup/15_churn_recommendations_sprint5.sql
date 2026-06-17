@@ -15,6 +15,7 @@ CREATE STAGE IF NOT EXISTS NEXUS_APP.CORE.ML_STAGE
     COMMENT           = 'Artefatos de modelos Snowpark ML';
 
 GRANT READ  ON STAGE NEXUS_APP.CORE.ML_STAGE TO ROLE NEXUS_ANALYST;
+GRANT READ  ON STAGE NEXUS_APP.CORE.ML_STAGE TO ROLE NEXUS_ADMIN;
 GRANT WRITE ON STAGE NEXUS_APP.CORE.ML_STAGE TO ROLE NEXUS_ADMIN;
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -22,17 +23,20 @@ GRANT WRITE ON STAGE NEXUS_APP.CORE.ML_STAGE TO ROLE NEXUS_ADMIN;
 -- Chama churn_model.py via Snowpark Python
 -- ─────────────────────────────────────────────────────────────────────────────
 
-CREATE OR REPLACE PROCEDURE NEXUS_APP.CORE.SP_RUN_CHURN_PIPELINE(MODE VARCHAR DEFAULT 'full')
-RETURNS VARCHAR
-LANGUAGE PYTHON
-RUNTIME_VERSION = '3.11'
-PACKAGES = ('snowflake-snowpark-python', 'snowflake-ml-python')
-HANDLER = 'churn_model.run_churn_pipeline'
-IMPORTS = ('@NEXUS_APP.CORE.ML_STAGE/churn_model.py')
-COMMENT = 'Treina/executa modelo de churn e gera recomendações via Cortex';
-
-GRANT EXECUTE ON PROCEDURE NEXUS_APP.CORE.SP_RUN_CHURN_PIPELINE(VARCHAR)
-    TO ROLE NEXUS_ADMIN;
+-- NOTE: SP_RUN_CHURN_PIPELINE requer upload prévio de churn_model.py no ML_STAGE.
+-- Executar SOMENTE após o upload do handler via 04-release ou scripts/upload_ml_model.py.
+--
+-- CREATE OR REPLACE PROCEDURE NEXUS_APP.CORE.SP_RUN_CHURN_PIPELINE(MODE VARCHAR DEFAULT 'full')
+-- RETURNS VARCHAR
+-- LANGUAGE PYTHON
+-- RUNTIME_VERSION = '3.11'
+-- PACKAGES = ('snowflake-snowpark-python', 'snowflake-ml-python')
+-- HANDLER = 'churn_model.run_churn_pipeline'
+-- IMPORTS = ('@NEXUS_APP.CORE.ML_STAGE/churn_model.py')
+-- COMMENT = 'Treina/executa modelo de churn e gera recomendações via Cortex';
+--
+-- GRANT EXECUTE ON PROCEDURE NEXUS_APP.CORE.SP_RUN_CHURN_PIPELINE(VARCHAR)
+--     TO ROLE NEXUS_ADMIN;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Stored Procedure: Atualizar status de recomendação (Action Center)

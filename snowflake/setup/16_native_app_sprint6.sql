@@ -42,30 +42,27 @@ CREATE STAGE IF NOT EXISTS NEXUS_AI_DATAOPS_PKG.PUBLIC.APP_STAGE
 -- Versão 1.0
 -- ─────────────────────────────────────────────────────────────────────────────
 
-ALTER APPLICATION PACKAGE NEXUS_AI_DATAOPS_PKG
-    ADD VERSION v1_0
-    USING @NEXUS_AI_DATAOPS_PKG.PUBLIC.APP_STAGE/v1/
-    LABEL = '1.0.0 — Customer & Revenue Intelligence';
-
--- Definir versão padrão para instalação
-ALTER APPLICATION PACKAGE NEXUS_AI_DATAOPS_PKG
-    SET DEFAULT RELEASE DIRECTIVE
-    VERSION = v1_0
-    PATCH = 0;
-
--- ─────────────────────────────────────────────────────────────────────────────
--- Testar instalação localmente (mesmo account — DEV)
--- ─────────────────────────────────────────────────────────────────────────────
-
-CREATE APPLICATION NEXUS_AI_DATAOPS_DEV
-    FROM APPLICATION PACKAGE NEXUS_AI_DATAOPS_PKG
-    USING VERSION v1_0
-    DEBUG_MODE = TRUE
-    COMMENT = 'Instância de desenvolvimento local para testes';
-
--- Verificar objetos criados pelo setup_script
-SHOW SCHEMAS IN DATABASE NEXUS_AI_DATAOPS_DEV;
-SHOW TABLES   IN DATABASE NEXUS_AI_DATAOPS_DEV;
+-- NOTE: Executar os comandos abaixo SOMENTE após upload dos artefatos no APP_STAGE.
+-- Execute via SnowSQL ou Snowsight após o pipeline de upload de artefatos (04-release).
+--
+-- ALTER APPLICATION PACKAGE NEXUS_AI_DATAOPS_PKG
+--     ADD VERSION v1_0
+--     USING @NEXUS_AI_DATAOPS_PKG.PUBLIC.APP_STAGE/v1/
+--     LABEL = '1.0.0 — Customer & Revenue Intelligence';
+--
+-- ALTER APPLICATION PACKAGE NEXUS_AI_DATAOPS_PKG
+--     SET DEFAULT RELEASE DIRECTIVE
+--     VERSION = v1_0
+--     PATCH = 0;
+--
+-- CREATE APPLICATION NEXUS_AI_DATAOPS_DEV
+--     FROM APPLICATION PACKAGE NEXUS_AI_DATAOPS_PKG
+--     USING VERSION v1_0
+--     DEBUG_MODE = TRUE
+--     COMMENT = 'Instância de desenvolvimento local para testes';
+--
+-- SHOW SCHEMAS IN DATABASE NEXUS_AI_DATAOPS_DEV;
+-- SHOW TABLES   IN DATABASE NEXUS_AI_DATAOPS_DEV;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Patch — deploy de atualização sem bump de versão major

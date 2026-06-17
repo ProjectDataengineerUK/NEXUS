@@ -227,7 +227,10 @@ jobs:
                        "feature not enabled",
                        "unsupported feature",
                        "cortex search service",     # GRANT on skipped cortex search svc
-                       "does not exist or not authorized")
+                       "does not exist or not authorized",
+                       "not found in stage",        # handler file missing (upload via 04-release)
+                       "application package"        # Native App pkg not available on trial
+                       )
 
           for script in scripts:
               print(f"  running {os.path.basename(script)}")
