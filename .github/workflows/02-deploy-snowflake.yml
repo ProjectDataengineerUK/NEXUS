@@ -247,6 +247,7 @@ jobs:
                   except Exception as e:
                       err = str(e).lower()
                       if not any(ig in err for ig in IGNORABLE):
+                          print(f"    FAILED STMT ({os.path.basename(script)}): {stmt[:300]}")
                           print(f"    WARNING in {os.path.basename(script)}: {e}")
                           raise
 
