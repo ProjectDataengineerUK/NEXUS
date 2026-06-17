@@ -142,7 +142,7 @@ jobs:
         if: ${{ github.event.inputs.skip_sql != 'true' }}
         run: |
           python - <<'EOF'
-          import snowflake.connector, os, glob
+          import snowflake.connector, os, glob, re
 
           scripts = sorted(glob.glob("snowflake/setup/*.sql"))
           if not scripts:
@@ -162,15 +162,20 @@ jobs:
           IGNORABLE = ("already exists", "duplicate", "unique constraint",
                        "primary key constraint", "object already exists")
 
+          def strip_comments(sql):
+              """Remove -- line comments so semicolons inside them don't split statements."""
+              lines = [re.sub(r'--.*$', '', line) for line in sql.splitlines()]
+              return '\n'.join(lines)
+
           for script in scripts:
               print(f"  running {os.path.basename(script)}")
               with open(script) as f:
-                  sql = f.read()
+                  raw = f.read()
+              sql = strip_comments(raw)
               for statement in sql.split(";"):
                   stmt = statement.strip()
-                  if not stmt or stmt.startswith("--"):
+                  if not stmt:
                       continue
-                  # Skip USE statements — connector is already in the right context
                   if stmt.upper().startswith("USE "):
                       continue
                   try:
