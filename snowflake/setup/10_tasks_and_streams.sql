@@ -60,33 +60,30 @@ RETURNS VARCHAR
 LANGUAGE SQL
 AS
 $$
-DECLARE
-    briefing_text TEXT;
 BEGIN
-    SELECT SNOWFLAKE.CORTEX.COMPLETE(
-        'claude-3-5-sonnet',
-        CONCAT(
-            'Você é o Executive AI Briefing Agent do NEXUS AI DataOps. ',
-            'Com base nos KPIs abaixo, gere um briefing executivo conciso (máx 300 palavras) ',
-            'com: (1) principais mudanças da semana, (2) top 3 riscos, (3) top 3 oportunidades, ',
-            '(4) ações recomendadas. Dados: ',
-            (SELECT OBJECT_CONSTRUCT(
-                'total_customers', COUNT(*),
-                'high_risk_customers', SUM(CASE WHEN cs.risk_level = 'HIGH' THEN 1 ELSE 0 END),
-                'arr_at_risk', SUM(CASE WHEN cs.risk_level = 'HIGH' THEN c.arr ELSE 0 END)
-            )::VARCHAR
-            FROM NEXUS_APP.CORE.CUSTOMERS c
-            LEFT JOIN NEXUS_APP.AI.CHURN_SCORES cs ON cs.customer_id = c.customer_id
-            WHERE cs.scored_at >= CURRENT_DATE() - 7)
-        )
-    ) INTO :briefing_text;
-
     INSERT INTO NEXUS_APP.AI.RECOMMENDATIONS
         (org_id, entity_id, entity_type, recommendation_type, priority,
          recommendation_text, expires_at)
-    VALUES
-        ('default', 'executive', 'briefing', 'weekly_briefing', 'HIGH',
-         :briefing_text, CURRENT_TIMESTAMP() + INTERVAL '7 days');
+    SELECT
+        'default', 'executive', 'briefing', 'weekly_briefing', 'HIGH',
+        SNOWFLAKE.CORTEX.COMPLETE(
+            'claude-3-5-sonnet',
+            CONCAT(
+                'Você é o Executive AI Briefing Agent do NEXUS AI DataOps. ',
+                'Com base nos KPIs abaixo, gere um briefing executivo conciso (máx 300 palavras) ',
+                'com: (1) principais mudanças da semana, (2) top 3 riscos, (3) top 3 oportunidades, ',
+                '(4) ações recomendadas. Dados: ',
+                (SELECT OBJECT_CONSTRUCT(
+                    'total_customers', COUNT(*),
+                    'high_risk_customers', SUM(CASE WHEN cs.risk_level = 'HIGH' THEN 1 ELSE 0 END),
+                    'arr_at_risk', SUM(CASE WHEN cs.risk_level = 'HIGH' THEN c.arr ELSE 0 END)
+                )::VARCHAR
+                FROM NEXUS_APP.CORE.CUSTOMERS c
+                LEFT JOIN NEXUS_APP.AI.CHURN_SCORES cs ON cs.customer_id = c.customer_id
+                WHERE cs.scored_at >= CURRENT_DATE() - 7)
+            )
+        ),
+        CURRENT_TIMESTAMP() + INTERVAL '7 days';
 
     RETURN 'Weekly briefing generated';
 END;
