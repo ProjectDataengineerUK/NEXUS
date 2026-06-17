@@ -1,0 +1,26 @@
+version: 2
+
+models:
+  - name: executive_kpis
+    description: >
+      Snapshot diário de KPIs executivos — uma linha por (org_id, snapshot_date).
+      Consumido por Home.py e pelo semantic model executive_kpis.yaml para
+      perguntas em linguagem natural via Cortex Analyst.
+    columns:
+      - name: snapshot_date
+        tests: [not_null]
+      - name: org_id
+        tests: [not_null]
+      - name: total_arr
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+      - name: active_customers
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+      - name: avg_health_score
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 100

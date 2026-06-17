@@ -1,0 +1,32 @@
+version: 2
+
+models:
+  - name: churn_features
+    description: >
+      Feature store para o modelo Snowpark ML de churn (LogisticRegression).
+      Uma linha por cliente com todas as features numéricas necessárias para
+      treino e scoring, mais o label histórico IS_CHURNED.
+    columns:
+      - name: customer_id
+        tests: [unique, not_null]
+      - name: org_id
+        tests: [not_null]
+      - name: health_score
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 100
+      - name: churn_probability
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 1
+      - name: is_churned
+        tests:
+          - accepted_values:
+              values: [0, 1]
+      - name: engagement_score
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 1

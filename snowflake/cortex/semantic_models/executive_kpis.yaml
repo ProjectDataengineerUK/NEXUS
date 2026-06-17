@@ -1,0 +1,154 @@
+name: nexus_executive_kpis
+description: >
+  Modelo semântico NEXUS — Executive KPIs e snapshot diário de saúde do negócio.
+  Cobre métricas executivas pré-agregadas: ARR total, clientes ativos, churn rate,
+  NPS médio, ARR em risco, renovações próximas e recomendações pendentes.
+  Use para perguntas de nível C-level e dashboards executivos.
+
+tables:
+  - name: executive_kpis
+    description: Snapshot diário de KPIs executivos — uma linha por org_id por dia.
+    base_table:
+      database: NEXUS_APP
+      schema: MART
+      table: EXECUTIVE_KPIS
+
+    primary_key:
+      columns:
+        - snapshot_date
+        - org_id
+
+    dimensions:
+      - name: snapshot_date
+        synonyms: ["data", "dia", "período"]
+        description: Data do snapshot dos KPIs.
+        expr: snapshot_date
+        data_type: DATE
+
+      - name: org_id
+        synonyms: ["organização", "cliente", "tenant"]
+        description: Identificador da organização.
+        expr: org_id
+        data_type: VARCHAR
+
+    measures:
+      - name: total_arr
+        synonyms: ["ARR", "receita anual", "annual recurring revenue", "ARR total"]
+        description: ARR total de clientes ativos + at_risk em USD.
+        expr: total_arr
+        data_type: NUMBER
+        agg: sum
+        agg_time_dimension: snapshot_date
+
+      - name: total_mrr
+        synonyms: ["MRR", "receita mensal", "monthly recurring revenue"]
+        description: MRR total em USD.
+        expr: total_mrr
+        data_type: NUMBER
+        agg: sum
+        agg_time_dimension: snapshot_date
+
+      - name: active_customers
+        synonyms: ["clientes ativos", "clientes saudáveis", "contas ativas"]
+        description: Número de clientes com lifecycle_stage = active.
+        expr: active_customers
+        data_type: NUMBER
+        agg: sum
+
+      - name: at_risk_customers
+        synonyms: ["clientes em risco", "at risk", "clientes em perigo"]
+        description: Número de clientes com lifecycle_stage = at_risk.
+        expr: at_risk_customers
+        data_type: NUMBER
+        agg: sum
+
+      - name: churned_customers
+        synonyms: ["clientes perdidos", "churn", "cancelamentos"]
+        description: Número de clientes churned.
+        expr: churned_customers
+        data_type: NUMBER
+        agg: sum
+
+      - name: arr_at_risk
+        synonyms: ["ARR em risco", "receita em risco", "ARR ameaçado"]
+        description: ARR total dos clientes em risco de cancelamento (HIGH + MEDIUM).
+        expr: arr_at_risk
+        data_type: NUMBER
+        agg: sum
+        agg_time_dimension: snapshot_date
+
+      - name: avg_health_score
+        synonyms: ["health score médio", "saúde média", "score médio"]
+        description: Média do health score de todos os clientes ativos.
+        expr: avg_health_score
+        data_type: NUMBER
+        agg: avg
+
+      - name: avg_nps
+        synonyms: ["NPS médio", "satisfação média", "net promoter score médio"]
+        description: Média do NPS de todos os clientes ativos.
+        expr: avg_nps
+        data_type: NUMBER
+        agg: avg
+
+      - name: open_tickets
+        synonyms: ["tickets abertos", "chamados em aberto", "suporte"]
+        description: Total de tickets de suporte em aberto.
+        expr: open_tickets
+        data_type: NUMBER
+        agg: sum
+
+      - name: renewals_90d_arr
+        synonyms: ["renovações próximas", "ARR de renovação", "pipeline de renovação"]
+        description: ARR de contratos que vencem nos próximos 90 dias.
+        expr: renewals_90d_arr
+        data_type: NUMBER
+        agg: sum
+
+      - name: pending_recommendations
+        synonyms: ["recomendações pendentes", "ações pendentes", "alertas"]
+        description: Número de recomendações de IA ainda não executadas.
+        expr: pending_recommendations
+        data_type: NUMBER
+        agg: sum
+
+      - name: total_expected_impact
+        synonyms: ["impacto esperado", "valor das recomendações", "potencial de retenção"]
+        description: Impacto financeiro total esperado das recomendações pendentes em USD.
+        expr: total_expected_impact
+        data_type: NUMBER
+        agg: sum
+
+verified_queries:
+  - name: kpis_hoje
+    question: "Quais são os KPIs executivos de hoje?"
+    verified_at: "2026-06-17"
+    sql: |
+      SELECT
+        total_arr, total_mrr, active_customers, at_risk_customers,
+        arr_at_risk, avg_health_score, avg_nps, open_tickets,
+        renewals_90d_arr, pending_recommendations, total_expected_impact
+      FROM NEXUS_APP.MART.EXECUTIVE_KPIS
+      WHERE snapshot_date = CURRENT_DATE()
+
+  - name: tendencia_arr_30d
+    question: "Como o ARR evoluiu nos últimos 30 dias?"
+    verified_at: "2026-06-17"
+    sql: |
+      SELECT snapshot_date, total_arr, arr_at_risk, at_risk_customers
+      FROM NEXUS_APP.MART.EXECUTIVE_KPIS
+      WHERE snapshot_date >= DATEADD('day', -30, CURRENT_DATE())
+      ORDER BY snapshot_date ASC
+
+  - name: churn_rate_atual
+    question: "Qual é a taxa de clientes em risco?"
+    verified_at: "2026-06-17"
+    sql: |
+      SELECT
+        at_risk_customers,
+        active_customers + at_risk_customers AS total_active,
+        ROUND(at_risk_customers * 100.0 / NULLIF(active_customers + at_risk_customers, 0), 1) AS pct_at_risk,
+        arr_at_risk,
+        ROUND(arr_at_risk * 100.0 / NULLIF(total_arr, 0), 1) AS pct_arr_at_risk
+      FROM NEXUS_APP.MART.EXECUTIVE_KPIS
+      WHERE snapshot_date = CURRENT_DATE()
