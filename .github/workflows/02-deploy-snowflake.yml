@@ -222,10 +222,12 @@ jobs:
                        "primary key constraint", "object already exists",
                        "already set", "already added", "already applied",
                        "already has",
-                       "not available for trial",  # Cortex AI features need Enterprise
+                       "not available for trial",   # Cortex / premium features on trial
                        "not supported for trial",
                        "feature not enabled",
-                       "unsupported feature")
+                       "unsupported feature",
+                       "cortex search service",     # GRANT on skipped cortex search svc
+                       "does not exist or not authorized")
 
           for script in scripts:
               print(f"  running {os.path.basename(script)}")
