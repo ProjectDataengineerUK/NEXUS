@@ -34,7 +34,7 @@ jobs:
       SNOWFLAKE_USER:     ${{ secrets.SNOWFLAKE_USER }}
       SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
       SNOWFLAKE_DATABASE: NEXUS_APP
-      SNOWFLAKE_ROLE:     SYSADMIN
+      SNOWFLAKE_ROLE:     ACCOUNTADMIN
       SNOWFLAKE_WAREHOUSE: NEXUS_COMPUTE_WH
 
     steps:
@@ -46,38 +46,9 @@ jobs:
           python-version: "3.11"
 
       - name: Instalar dependências
-        run: |
-          pip install snowflake-connector-python snowflake-snowpark-python
+        run: pip install snowflake-connector-python
 
-      - name: Upload YAML configs (semantic model + agent)
-        run: |
-          python - <<'EOF'
-          import snowflake.connector, os, glob
-
-          conn = snowflake.connector.connect(
-              account=os.environ["SNOWFLAKE_ACCOUNT"],
-              user=os.environ["SNOWFLAKE_USER"],
-              password=os.environ["SNOWFLAKE_PASSWORD"],
-              database=os.environ["SNOWFLAKE_DATABASE"],
-              role=os.environ["SNOWFLAKE_ROLE"],
-              warehouse=os.environ["SNOWFLAKE_WAREHOUSE"],
-          )
-          cs = conn.cursor()
-
-          for f in glob.glob("snowflake/config/*.yaml"):
-              fname = os.path.basename(f)
-              print(f"  uploading {fname}")
-              cs.execute(f"""
-                  PUT file://{f} @NEXUS_APP.CORE.SEMANTIC_STAGE
-                  OVERWRITE = TRUE AUTO_COMPRESS = FALSE
-              """)
-
-          cs.close()
-          conn.close()
-          print("YAML configs uploaded.")
-          EOF
-
-      - name: Upload churn_model.py para ML stage
+      - name: Testar conexão Snowflake
         run: |
           python - <<'EOF'
           import snowflake.connector, os
@@ -91,20 +62,22 @@ jobs:
               warehouse=os.environ["SNOWFLAKE_WAREHOUSE"],
           )
           cs = conn.cursor()
-          cs.execute("""
-              PUT file://snowflake/models/churn_model.py
-              @NEXUS_APP.CORE.ML_STAGE
-              OVERWRITE = TRUE AUTO_COMPRESS = FALSE
-          """)
+          cs.execute("SELECT CURRENT_ACCOUNT(), CURRENT_ROLE(), CURRENT_DATABASE()")
+          row = cs.fetchone()
+          print(f"Connected: account={row[0]}, role={row[1]}, database={row[2]}")
           cs.close()
           conn.close()
-          print("churn_model.py uploaded.")
           EOF
 
-      - name: Upload páginas Streamlit
+      - name: Upload YAML configs (semantic model + agent)
         run: |
           python - <<'EOF'
           import snowflake.connector, os, glob
+
+          files = glob.glob("snowflake/config/*.yaml")
+          if not files:
+              print("No YAML configs found — skipping.")
+              exit(0)
 
           conn = snowflake.connector.connect(
               account=os.environ["SNOWFLAKE_ACCOUNT"],
@@ -116,7 +89,43 @@ jobs:
           )
           cs = conn.cursor()
 
-          for f in glob.glob("app/streamlit/pages/*.py") + ["app/streamlit/Home.py"]:
+          for f in files:
+              fname = os.path.basename(f)
+              print(f"  uploading {fname}")
+              cs.execute(f"""
+                  PUT file://{f} @NEXUS_APP.CORE.SEMANTIC_STAGE
+                  OVERWRITE = TRUE AUTO_COMPRESS = FALSE
+              """)
+
+          cs.close()
+          conn.close()
+          print("YAML configs uploaded.")
+          EOF
+
+      - name: Upload páginas Streamlit
+        run: |
+          python - <<'EOF'
+          import snowflake.connector, os, glob
+
+          files = glob.glob("app/streamlit/pages/*.py")
+          home = "app/streamlit/Home.py"
+          if os.path.exists(home):
+              files.append(home)
+          if not files:
+              print("No Streamlit pages found — skipping.")
+              exit(0)
+
+          conn = snowflake.connector.connect(
+              account=os.environ["SNOWFLAKE_ACCOUNT"],
+              user=os.environ["SNOWFLAKE_USER"],
+              password=os.environ["SNOWFLAKE_PASSWORD"],
+              database=os.environ["SNOWFLAKE_DATABASE"],
+              role=os.environ["SNOWFLAKE_ROLE"],
+              warehouse=os.environ["SNOWFLAKE_WAREHOUSE"],
+          )
+          cs = conn.cursor()
+
+          for f in files:
               fname = os.path.basename(f)
               print(f"  uploading {fname}")
               cs.execute(f"""
@@ -135,6 +144,11 @@ jobs:
           python - <<'EOF'
           import snowflake.connector, os, glob
 
+          scripts = sorted(glob.glob("snowflake/setup/*.sql"))
+          if not scripts:
+              print("No SQL setup scripts found — skipping.")
+              exit(0)
+
           conn = snowflake.connector.connect(
               account=os.environ["SNOWFLAKE_ACCOUNT"],
               user=os.environ["SNOWFLAKE_USER"],
@@ -145,7 +159,6 @@ jobs:
           )
           cs = conn.cursor()
 
-          scripts = sorted(glob.glob("snowflake/setup/*.sql"))
           for script in scripts:
               print(f"  running {os.path.basename(script)}")
               with open(script) as f:
@@ -156,59 +169,12 @@ jobs:
                       try:
                           cs.execute(stmt)
                       except Exception as e:
-                          # Ignorar erros de "já existe" (idempotente)
                           if "already exists" not in str(e).lower():
                               raise
 
           cs.close()
           conn.close()
           print("Setup scripts executed.")
-          EOF
-
-      - name: Treinar modelo de churn inicial
-        run: |
-          python - <<'EOF'
-          import snowflake.connector, os
-
-          conn = snowflake.connector.connect(
-              account=os.environ["SNOWFLAKE_ACCOUNT"],
-              user=os.environ["SNOWFLAKE_USER"],
-              password=os.environ["SNOWFLAKE_PASSWORD"],
-              database=os.environ["SNOWFLAKE_DATABASE"],
-              role=os.environ["SNOWFLAKE_ROLE"],
-              warehouse=os.environ["SNOWFLAKE_WAREHOUSE"],
-          )
-          cs = conn.cursor()
-          cs.execute("CALL NEXUS_APP.CORE.SP_RUN_CHURN_PIPELINE('full')")
-          result = cs.fetchone()
-          print(f"Churn pipeline result: {result}")
-          cs.close()
-          conn.close()
-          EOF
-
-      - name: Criar Streamlit App (se não existir)
-        run: |
-          python - <<'EOF'
-          import snowflake.connector, os
-
-          conn = snowflake.connector.connect(
-              account=os.environ["SNOWFLAKE_ACCOUNT"],
-              user=os.environ["SNOWFLAKE_USER"],
-              password=os.environ["SNOWFLAKE_PASSWORD"],
-              database=os.environ["SNOWFLAKE_DATABASE"],
-              role=os.environ["SNOWFLAKE_ROLE"],
-              warehouse=os.environ["SNOWFLAKE_WAREHOUSE"],
-          )
-          cs = conn.cursor()
-          cs.execute("""
-              CREATE STREAMLIT IF NOT EXISTS NEXUS_APP.CORE.NEXUS_DASHBOARD
-                ROOT_LOCATION = '@NEXUS_APP.CORE.APP_STAGE/streamlit'
-                MAIN_FILE     = 'Home.py'
-                QUERY_WAREHOUSE = NEXUS_UI_WH
-          """)
-          cs.close()
-          conn.close()
-          print("Streamlit app ready.")
           EOF
 
   deploy-prod:
@@ -222,7 +188,7 @@ jobs:
       SNOWFLAKE_USER:     ${{ secrets.SNOWFLAKE_PROD_USER }}
       SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PROD_PASSWORD }}
       SNOWFLAKE_DATABASE: NEXUS_APP
-      SNOWFLAKE_ROLE:     SYSADMIN
+      SNOWFLAKE_ROLE:     ACCOUNTADMIN
       SNOWFLAKE_WAREHOUSE: NEXUS_COMPUTE_WH
 
     steps:
