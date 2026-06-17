@@ -1,0 +1,11 @@
+# Copie este arquivo para terraform.tfvars e preencha seus valores.
+# NUNCA commite terraform.tfvars no git — ele contém credenciais.
+
+# Snowflake — via variáveis de ambiente (recomendado):
+#   export SNOWFLAKE_ACCOUNT="myorg-myaccount"
+#   export SNOWFLAKE_USER="nexus_terraform_svc"
+#   export SNOWFLAKE_PASSWORD="..."
+#   ou
+#   export SNOWFLAKE_PRIVATE_KEY_PATH="/path/to/rsa_key.p8"
+
+snowflake_role = "SYSADMIN"

@@ -1,0 +1,23 @@
+# State files — NUNCA commitar state no git
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+
+# Credenciais — NUNCA commitar
+terraform.tfvars
+*.tfvars
+!*.tfvars.example
+
+# Arquivos temporários
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Key pairs e certificados
+*.p8
+*.pem
+*.key

@@ -1,0 +1,9 @@
+# Copie para terraform.tfvars e preencha. NUNCA commite no git.
+#
+# Produção usa key-pair auth (sem senha em variável de ambiente):
+#   export SNOWFLAKE_ACCOUNT="myorg-myaccount"
+#   export SNOWFLAKE_USER="nexus_terraform_svc"
+#   export SNOWFLAKE_PRIVATE_KEY_PATH="/secrets/rsa_key.p8"
+#   export SNOWFLAKE_PRIVATE_KEY_PASSPHRASE="..."
+
+snowflake_role = "SYSADMIN"
