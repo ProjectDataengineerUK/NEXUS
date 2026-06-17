@@ -75,12 +75,15 @@ CREATE TABLE IF NOT EXISTS NEXUS_APP.CONFIG.ROLE_AGENT_MAP (
     PRIMARY KEY (role_name, vertical_pack)
 );
 
-INSERT INTO NEXUS_APP.CONFIG.ROLE_AGENT_MAP VALUES
-    ('NEXUS_ADMIN',           'executive_agent',  'saas_customer', CURRENT_TIMESTAMP()),
-    ('NEXUS_ANALYST',         'revenue_agent',    'saas_customer', CURRENT_TIMESTAMP()),
-    ('NEXUS_VIEWER',          'customer_agent',   'saas_customer', CURRENT_TIMESTAMP()),
-    ('NEXUS_DATA_ENGINEER',   'data_steward_agent','saas_customer', CURRENT_TIMESTAMP())
-ON CONFLICT (role_name, vertical_pack) DO NOTHING;
+MERGE INTO NEXUS_APP.CONFIG.ROLE_AGENT_MAP AS tgt
+USING (
+    SELECT 'NEXUS_ADMIN'         AS role_name, 'executive_agent'   AS agent_name, 'saas_customer' AS vertical_pack, CURRENT_TIMESTAMP() AS assigned_at
+    UNION ALL SELECT 'NEXUS_ANALYST',       'revenue_agent',    'saas_customer', CURRENT_TIMESTAMP()
+    UNION ALL SELECT 'NEXUS_VIEWER',        'customer_agent',   'saas_customer', CURRENT_TIMESTAMP()
+    UNION ALL SELECT 'NEXUS_DATA_ENGINEER', 'data_steward_agent','saas_customer', CURRENT_TIMESTAMP()
+) AS src ON tgt.role_name = src.role_name AND tgt.vertical_pack = src.vertical_pack
+WHEN NOT MATCHED THEN INSERT (role_name, agent_name, vertical_pack, assigned_at)
+    VALUES (src.role_name, src.agent_name, src.vertical_pack, src.assigned_at);
 
 -- Mapeamento usuário → org_id (usado pela Row Access Policy de isolamento multi-tenant)
 CREATE TABLE IF NOT EXISTS NEXUS_APP.CONFIG.ORG_USER_MAP (

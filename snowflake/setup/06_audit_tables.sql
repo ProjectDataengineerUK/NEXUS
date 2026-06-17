@@ -86,21 +86,24 @@ CREATE TABLE IF NOT EXISTS NEXUS_APP.CONFIG.APP_SETTINGS (
     PRIMARY KEY (setting_key)
 );
 
-INSERT INTO NEXUS_APP.CONFIG.APP_SETTINGS VALUES
-    ('default_llm_model',       'claude-3-5-sonnet',    'Modelo LLM padrão para agentes Cortex',         CURRENT_TIMESTAMP()),
-    ('ui_warehouse',            'NEXUS_UI_WH',          'Warehouse para Streamlit UI',                   CURRENT_TIMESTAMP()),
-    ('compute_warehouse',       'NEXUS_COMPUTE_WH',     'Warehouse para queries e agentes',              CURRENT_TIMESTAMP()),
-    ('ml_warehouse',            'NEXUS_ML_WH',          'Warehouse para treino de modelos ML',           CURRENT_TIMESTAMP()),
-    ('churn_high_threshold',    '0.7',                  'Score acima = risco HIGH',                      CURRENT_TIMESTAMP()),
-    ('churn_medium_threshold',  '0.4',                  'Score acima = risco MEDIUM',                    CURRENT_TIMESTAMP()),
-    ('freshness_sla_hours',     '24',                   'Horas máx sem refresh antes de alerta',         CURRENT_TIMESTAMP()),
-    ('agent_max_tokens',        '2048',                 'Max tokens por resposta de agente',             CURRENT_TIMESTAMP()),
-    ('agent_temperature',       '0.1',                  'Temperature para respostas determinísticas',    CURRENT_TIMESTAMP()),
-    ('audit_retention_days',    '365',                  'Retenção de logs de auditoria',                 CURRENT_TIMESTAMP()),
-    ('vertical_pack',           'saas_customer',        'Vertical Pack ativo',                           CURRENT_TIMESTAMP()),
-    ('enable_workflow_automation', 'false',             'Habilitar M7 Automation (External Access)',     CURRENT_TIMESTAMP()),
-    ('demo_mode',               'false',                'Usar dataset demo em vez de dados reais',       CURRENT_TIMESTAMP())
-ON CONFLICT (setting_key) DO NOTHING;
+MERGE INTO NEXUS_APP.CONFIG.APP_SETTINGS AS tgt
+USING (
+    SELECT 'default_llm_model'       AS k, 'claude-3-5-sonnet'  AS v, 'Modelo LLM padrão para agentes Cortex'         AS d
+    UNION ALL SELECT 'ui_warehouse',            'NEXUS_UI_WH',          'Warehouse para Streamlit UI'
+    UNION ALL SELECT 'compute_warehouse',       'NEXUS_COMPUTE_WH',     'Warehouse para queries e agentes'
+    UNION ALL SELECT 'ml_warehouse',            'NEXUS_ML_WH',          'Warehouse para treino de modelos ML'
+    UNION ALL SELECT 'churn_high_threshold',    '0.7',                  'Score acima = risco HIGH'
+    UNION ALL SELECT 'churn_medium_threshold',  '0.4',                  'Score acima = risco MEDIUM'
+    UNION ALL SELECT 'freshness_sla_hours',     '24',                   'Horas máx sem refresh antes de alerta'
+    UNION ALL SELECT 'agent_max_tokens',        '2048',                 'Max tokens por resposta de agente'
+    UNION ALL SELECT 'agent_temperature',       '0.1',                  'Temperature para respostas determinísticas'
+    UNION ALL SELECT 'audit_retention_days',    '365',                  'Retenção de logs de auditoria'
+    UNION ALL SELECT 'vertical_pack',           'saas_customer',        'Vertical Pack ativo'
+    UNION ALL SELECT 'enable_workflow_automation', 'false',             'Habilitar M7 Automation (External Access)'
+    UNION ALL SELECT 'demo_mode',               'false',                'Usar dataset demo em vez de dados reais'
+) AS src ON tgt.setting_key = src.k
+WHEN NOT MATCHED THEN INSERT (setting_key, setting_value, description, updated_at)
+    VALUES (src.k, src.v, src.d, CURRENT_TIMESTAMP());
 
 ALTER TABLE NEXUS_APP.AUDIT.PROMPT_LOG    CLUSTER BY (org_id, created_at);
 ALTER TABLE NEXUS_APP.AUDIT.ACCESS_LOG    CLUSTER BY (org_id, created_at);
