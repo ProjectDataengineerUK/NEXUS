@@ -4,22 +4,23 @@ USE ROLE NEXUS_ADMIN;
 USE DATABASE NEXUS_APP;
 USE WAREHOUSE NEXUS_ORCHESTRATION_WH;
 
--- Stream para detectar novos documentos não processados
+-- ─── Streams ─────────────────────────────────────────────────────────────────
+
 CREATE OR REPLACE STREAM NEXUS_APP.CONFIG.DOCUMENTS_PENDING_STREAM
     ON TABLE NEXUS_APP.CORE.DOCUMENTS
     COMMENT = 'Detecta novos documentos para processar embeddings';
 
--- Stream para audit de novos agent messages
 CREATE OR REPLACE STREAM NEXUS_APP.CONFIG.AGENT_MESSAGES_STREAM
     ON TABLE NEXUS_APP.AI.AGENT_MESSAGES
     COMMENT = 'Detecta novas mensagens para registrar em AUDIT.PROMPT_LOG';
 
--- Task: Data Quality checks diários (06:00 UTC)
-CREATE OR REPLACE TASK NEXUS_APP.CONFIG.TASK_DATA_QUALITY
-    WAREHOUSE = NEXUS_ORCHESTRATION_WH
-    SCHEDULE = 'USING CRON 0 6 * * * UTC'
-    COMMENT = 'Executa Data Metric Functions e registra em AUDIT.DATA_QUALITY_RESULTS'
+-- ─── Stored Procedures (lógica extraída das tasks para facilitar deploy) ─────
+
+CREATE OR REPLACE PROCEDURE NEXUS_APP.CORE.SP_DATA_QUALITY_CHECK()
+RETURNS VARCHAR
+LANGUAGE SQL
 AS
+$$
 BEGIN
     INSERT INTO NEXUS_APP.AUDIT.DATA_QUALITY_RESULTS
         (org_id, table_name, metric_name, metric_value, threshold, status, details)
@@ -52,16 +53,16 @@ BEGIN
 
     RETURN 'Data quality checks completed';
 END;
+$$;
 
--- Task: Geração de AI Briefing semanal (segunda-feira 08:00 UTC)
-CREATE OR REPLACE TASK NEXUS_APP.CONFIG.TASK_WEEKLY_BRIEFING
-    WAREHOUSE = NEXUS_COMPUTE_WH
-    SCHEDULE = 'USING CRON 0 8 * * 1 UTC'
-    COMMENT = 'Gera Executive AI Briefing semanal e armazena em AI.RECOMMENDATIONS'
+CREATE OR REPLACE PROCEDURE NEXUS_APP.CORE.SP_WEEKLY_BRIEFING()
+RETURNS VARCHAR
+LANGUAGE SQL
 AS
+$$
+DECLARE
+    briefing_text TEXT;
 BEGIN
-    LET briefing_text TEXT;
-
     SELECT SNOWFLAKE.CORTEX.COMPLETE(
         'claude-3-5-sonnet',
         CONCAT(
@@ -89,8 +90,24 @@ BEGIN
 
     RETURN 'Weekly briefing generated';
 END;
+$$;
 
--- Task: Refresh de churn scores diário (02:00 UTC, após marts dbt)
+-- ─── Tasks (cada uma é um único CALL — sem BEGIN..END no body) ───────────────
+
+CREATE OR REPLACE TASK NEXUS_APP.CONFIG.TASK_DATA_QUALITY
+    WAREHOUSE = NEXUS_ORCHESTRATION_WH
+    SCHEDULE = 'USING CRON 0 6 * * * UTC'
+    COMMENT = 'Executa Data Metric Functions e registra em AUDIT.DATA_QUALITY_RESULTS'
+AS
+    CALL NEXUS_APP.CORE.SP_DATA_QUALITY_CHECK();
+
+CREATE OR REPLACE TASK NEXUS_APP.CONFIG.TASK_WEEKLY_BRIEFING
+    WAREHOUSE = NEXUS_COMPUTE_WH
+    SCHEDULE = 'USING CRON 0 8 * * 1 UTC'
+    COMMENT = 'Gera Executive AI Briefing semanal e armazena em AI.RECOMMENDATIONS'
+AS
+    CALL NEXUS_APP.CORE.SP_WEEKLY_BRIEFING();
+
 CREATE OR REPLACE TASK NEXUS_APP.CONFIG.TASK_CHURN_SCORING
     WAREHOUSE = NEXUS_ML_WH
     SCHEDULE = 'USING CRON 0 2 * * * UTC'
