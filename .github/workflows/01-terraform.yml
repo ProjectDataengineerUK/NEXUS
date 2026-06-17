@@ -47,6 +47,7 @@ jobs:
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account:            ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          project_id:                 ${{ vars.GCP_PROJECT }}
 
       - name: Terraform Init
         env:
@@ -110,6 +111,7 @@ jobs:
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account:            ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          project_id:                 ${{ vars.GCP_PROJECT }}
 
       - name: Terraform Init
         env:
@@ -150,6 +152,7 @@ jobs:
         with:
           workload_identity_provider: ${{ secrets.GCP_PROD_WORKLOAD_IDENTITY_PROVIDER }}
           service_account:            ${{ secrets.GCP_PROD_SERVICE_ACCOUNT }}
+          project_id:                 ${{ vars.GCP_PROJECT }}
 
       - name: Terraform Init
         env:
