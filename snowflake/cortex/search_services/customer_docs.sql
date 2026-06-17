@@ -19,7 +19,6 @@ AS (
         chunk_index,
         COALESCE(section_title, '') AS section_title
     FROM AI.DOCUMENT_CHUNKS
-    WHERE processing_status IS NULL OR processing_status = 'indexed'
 );
 
 GRANT USAGE ON CORTEX SEARCH SERVICE AI.DOC_SEARCH TO APPLICATION ROLE NEXUS_ADMIN;
