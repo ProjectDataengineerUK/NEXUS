@@ -44,6 +44,12 @@ models:
       action_center:
         +materialized: table
 
+    ai:
+      +schema: AI
+      +materialized: incremental
+      +incremental_strategy: merge
+      +tags: ["ai", "silver"]
+
 seeds:
   nexus_ai_dataops:
     +schema: SEEDS

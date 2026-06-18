@@ -82,6 +82,28 @@ sources:
               - accepted_values:
                   values: ['new_contract', 'renewal', 'upsell', 'downgrade', 'churn', 'refund']
 
+      - name: contracts
+        description: "Contratos corporativos — valor, vigência, flags de risco e campos extraídos por Document AI."
+        loaded_at_field: updated_at
+        columns:
+          - name: contract_id
+            tests: [unique, not_null]
+          - name: customer_id
+            tests: [not_null]
+          - name: status
+            tests:
+              - accepted_values:
+                  values: ['active', 'expired', 'cancelled', 'draft', 'pending']
+
+      - name: documents
+        description: "Documentos originais (PDFs, contratos) com texto extraído pelo Document AI."
+        loaded_at_field: created_at
+        columns:
+          - name: document_id
+            tests: [unique, not_null]
+          - name: org_id
+            tests: [not_null]
+
   - name: nexus_ai
     database: NEXUS_APP
     schema: AI

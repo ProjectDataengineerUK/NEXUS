@@ -1,0 +1,40 @@
+app:
+  name: "NEXUS AI DataOps"
+  version: "1.0.0"
+  vertical_pack: "saas_customer"
+  demo_mode: true
+
+warehouses:
+  ui:        NEXUS_UI_WH
+  compute:   NEXUS_COMPUTE_WH
+  ml:        NEXUS_ML_WH
+
+llm:
+  default_model:    "mistral-large2"
+  analyst_model:    "mistral-large2"
+  summarize_model:  "mistral-large2"
+  embed_model:      "e5-base-v2"
+
+agents:
+  customer:     customer_agent
+  revenue:      revenue_agent
+  risk:         risk_agent
+  data_steward: data_steward_agent
+
+cortex_search:
+  service: "NEXUS_APP.AI.DOC_SEARCH"
+  default_limit: 5
+
+thresholds:
+  churn_high:          0.70
+  churn_medium:        0.40
+  health_score_low:    50
+  freshness_sla_hours: 24
+  renewal_alert_days:  90
+  nps_at_risk:         30
+
+ui:
+  page_size:       25
+  chart_height:    400
+  sidebar_default: expanded
+  date_range_days: 30

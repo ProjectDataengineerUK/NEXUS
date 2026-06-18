@@ -1,0 +1,21 @@
+version: 2
+
+models:
+  - name: document_chunks
+    description: >
+      Chunks de documentos para indexação no Cortex Search Service (AI.DOC_SEARCH).
+      Cada linha representa um parágrafo de um documento original. chunk_id é
+      deterministico (MD5) para suportar incremental merge idempotente.
+    columns:
+      - name: chunk_id
+        tests: [unique, not_null]
+      - name: document_id
+        tests: [not_null]
+      - name: org_id
+        tests: [not_null]
+      - name: chunk_text
+        tests: [not_null]
+      - name: chunk_index
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0

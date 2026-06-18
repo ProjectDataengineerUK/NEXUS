@@ -1,0 +1,23 @@
+version: 2
+
+models:
+  - name: revenue_daily
+    description: >
+      Mart de receita diária por org_id: movimentos de MRR (new, expansion,
+      churn, contraction, renewal) e net_new_arr. Incremental com lookback de
+      30 dias para capturar transações tardias.
+    columns:
+      - name: revenue_date
+        tests: [not_null]
+      - name: org_id
+        tests: [not_null]
+      - name: new_mrr
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+      - name: churn_mrr
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+      - name: net_new_mrr
+        description: "new_mrr + expansion_mrr - contraction_mrr - churn_mrr"
