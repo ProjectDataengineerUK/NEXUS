@@ -11,8 +11,8 @@ artifacts:
   default_streamlit: CORE.NEXUS_UI
 
 privileges:
-  - EXECUTE TASK
-  - CREATE WAREHOUSE
+  - name: EXECUTE TASK
+  - name: CREATE WAREHOUSE
 
 references:
   - name: CUSTOMER_TABLE
