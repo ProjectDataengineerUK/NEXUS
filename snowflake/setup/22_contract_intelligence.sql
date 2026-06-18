@@ -140,10 +140,9 @@ WHERE d.document_type = 'contract'
 
 -- ─── Task: extract clauses for pending contracts (every 4h) ──────────────────
 
-CREATE OR REPLACE TASK CORE.TASK_CONTRACT_EXTRACTION
-    WAREHOUSE = NEXUS_COMPUTE_WH
-    SCHEDULE  = 'USING CRON 0 */4 * * * UTC'
-    COMMENT   = 'Auto-extract clauses from newly uploaded contracts'
+CREATE OR REPLACE PROCEDURE CORE.SP_RUN_CONTRACT_EXTRACTION()
+RETURNS VARCHAR
+LANGUAGE SQL
 AS
 $$
 DECLARE
@@ -162,7 +161,15 @@ BEGIN
         v_doc_id := rec.document_id;
         CALL CORE.EXTRACT_CONTRACT_CLAUSES(:v_doc_id);
     END FOR;
+    RETURN 'OK';
 END;
-$$
+$$;
+
+CREATE OR REPLACE TASK CORE.TASK_CONTRACT_EXTRACTION
+    WAREHOUSE = NEXUS_COMPUTE_WH
+    SCHEDULE  = 'USING CRON 0 */4 * * * UTC'
+    COMMENT   = 'Auto-extract clauses from newly uploaded contracts'
+AS
+CALL CORE.SP_RUN_CONTRACT_EXTRACTION();
 
 ALTER TASK CORE.TASK_CONTRACT_EXTRACTION RESUME;

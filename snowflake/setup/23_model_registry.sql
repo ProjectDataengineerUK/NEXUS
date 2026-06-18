@@ -192,14 +192,12 @@ WHERE rn = 1;
 
 -- ─── Task: evaluate model performance daily ───────────────────────────────────
 
-CREATE OR REPLACE TASK ML.TASK_MODEL_EVALUATION
-    WAREHOUSE = NEXUS_COMPUTE_WH
-    SCHEDULE  = 'USING CRON 0 3 * * * UTC'
-    COMMENT   = 'Daily model performance evaluation and drift detection'
+CREATE OR REPLACE PROCEDURE ML.SP_RUN_MODEL_EVALUATION()
+RETURNS VARCHAR
+LANGUAGE SQL
 AS
 $$
 BEGIN
-    -- Churn model: recompute precision/recall on last 30d ground truth
     INSERT INTO NEXUS_APP.ML.MODEL_PERFORMANCE_LOG
         (model_name, model_version, metric_name, metric_value, dataset_split)
     SELECT
@@ -218,7 +216,6 @@ BEGIN
     )
     HAVING COUNT(*) > 0;
 
-    -- Health score model: track average predicted vs. actual NPS correlation proxy
     INSERT INTO NEXUS_APP.ML.MODEL_PERFORMANCE_LOG
         (model_name, model_version, metric_name, metric_value, dataset_split)
     SELECT
@@ -229,8 +226,17 @@ BEGIN
         'prod'
     FROM NEXUS_APP.MART.CUSTOMER_360
     WHERE health_score IS NOT NULL;
+
+    RETURN 'OK';
 END;
-$$
+$$;
+
+CREATE OR REPLACE TASK ML.TASK_MODEL_EVALUATION
+    WAREHOUSE = NEXUS_COMPUTE_WH
+    SCHEDULE  = 'USING CRON 0 3 * * * UTC'
+    COMMENT   = 'Daily model performance evaluation and drift detection'
+AS
+CALL ML.SP_RUN_MODEL_EVALUATION();
 
 ALTER TASK ML.TASK_MODEL_EVALUATION RESUME;
 

@@ -150,12 +150,12 @@ END;
 $$;
 
 
--- ─── Task: daily alert digest (06:00 UTC) ────────────────────────────────────
+-- ─── SP: Runner called by daily task ─────────────────────────────────────────
+-- TASK bodies cannot use $$ delimiters; multi-statement logic lives here.
 
-CREATE OR REPLACE TASK CORE.TASK_DAILY_ALERTS
-    WAREHOUSE = NEXUS_COMPUTE_WH
-    SCHEDULE  = 'USING CRON 0 6 * * * UTC'
-    COMMENT   = 'Daily Slack digest for high-risk customers and SLA breaches'
+CREATE OR REPLACE PROCEDURE CORE.SP_RUN_DAILY_ALERTS()
+RETURNS VARCHAR
+LANGUAGE SQL
 AS
 $$
 DECLARE
@@ -166,7 +166,17 @@ BEGIN
         CALL CORE.NOTIFY_HIGH_RISK_CUSTOMERS(:v_org);
         CALL CORE.NOTIFY_SLA_BREACHES(:v_org);
     END FOR;
+    RETURN 'OK';
 END;
-$$
+$$;
+
+-- ─── Task: daily alert digest (06:00 UTC) ────────────────────────────────────
+
+CREATE OR REPLACE TASK CORE.TASK_DAILY_ALERTS
+    WAREHOUSE = NEXUS_COMPUTE_WH
+    SCHEDULE  = 'USING CRON 0 6 * * * UTC'
+    COMMENT   = 'Daily Slack digest for high-risk customers and SLA breaches'
+AS
+CALL CORE.SP_RUN_DAILY_ALERTS();
 
 ALTER TASK CORE.TASK_DAILY_ALERTS RESUME;
