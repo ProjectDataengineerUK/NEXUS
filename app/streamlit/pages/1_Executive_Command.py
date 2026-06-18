@@ -196,3 +196,94 @@ else:
         use_container_width=True,
         column_config={"Valor": st.column_config.NumberColumn(format="$%.0f")},
     )
+
+st.divider()
+
+# ─── Scenario Simulation (What-If) ───────────────────────────────────────────
+
+st.markdown("## 🔮 Scenario Simulation — What-If")
+st.caption("Simule o impacto de intervenções de retenção e upsell no ARR e na base ativa.")
+
+sim_col1, sim_col2 = st.columns(2)
+
+with sim_col1:
+    st.subheader("Retenção de Churn")
+    churn_reduction_pct = st.slider(
+        "% de clientes em risco HIGH que seriam retidos",
+        min_value=0, max_value=100, value=50, step=5,
+        help="Se sua equipe intervier em X% dos casos de alto risco, qual o impacto no ARR?"
+    )
+    avg_arr_at_risk = st.number_input(
+        "ARR médio do cliente em risco (USD)",
+        min_value=1000, max_value=5_000_000, value=50_000, step=1000,
+    )
+
+    try:
+        at_risk_count = int(run_query(f"""
+            SELECT COUNT(*) AS n FROM NEXUS_APP.MART.CUSTOMER_360
+            WHERE org_id = '{ORG_ID}' AND churn_risk_level = 'HIGH'
+        """)["N"].iloc[0] or 0)
+    except Exception:
+        at_risk_count = 10
+
+    retained = round(at_risk_count * churn_reduction_pct / 100)
+    arr_saved = retained * avg_arr_at_risk
+
+    st.metric("Clientes HIGH em risco",  at_risk_count)
+    st.metric("Clientes retidos (estimado)", retained)
+    st.metric("ARR preservado (estimado)", f"${arr_saved:,.0f}", delta=f"+${arr_saved:,.0f}")
+
+with sim_col2:
+    st.subheader("Expansão de Receita (Upsell)")
+    upsell_pct = st.slider(
+        "% de clientes com upsell bem-sucedido",
+        min_value=0, max_value=50, value=15, step=5,
+        help="Qual % da base atual converteria para um plano superior?"
+    )
+    avg_upsell_value = st.number_input(
+        "Incremento médio de ARR por upsell (USD)",
+        min_value=500, max_value=200_000, value=12_000, step=500,
+    )
+
+    try:
+        active_count = int(run_query(f"""
+            SELECT COUNT(*) AS n FROM NEXUS_APP.MART.CUSTOMER_360
+            WHERE org_id = '{ORG_ID}' AND lifecycle_stage = 'active'
+        """)["N"].iloc[0] or 0)
+    except Exception:
+        active_count = 50
+
+    upsold = round(active_count * upsell_pct / 100)
+    arr_expansion = upsold * avg_upsell_value
+
+    st.metric("Clientes ativos", active_count)
+    st.metric("Upsells projetados", upsold)
+    st.metric("Expansão ARR (estimada)", f"${arr_expansion:,.0f}", delta=f"+${arr_expansion:,.0f}")
+
+# Resumo combinado
+st.divider()
+total_impact = arr_saved + arr_expansion
+st.markdown(f"### Impacto total estimado: **${total_impact:,.0f}** ARR")
+st.caption(f"= ${arr_saved:,.0f} retido (churn) + ${arr_expansion:,.0f} expandido (upsell)")
+
+if st.button("📝 Gerar análise detalhada com IA", type="primary"):
+    with st.spinner("Gerando análise de cenário…"):
+        try:
+            analysis = run_query(f"""
+                SELECT SNOWFLAKE.CORTEX.COMPLETE(
+                    'claude-3-5-sonnet',
+                    ARRAY_CONSTRUCT(OBJECT_CONSTRUCT(
+                        'role', 'user',
+                        'content', 'Você é um CFO advisor. Analise este cenário de negócios: ' ||
+                            '{at_risk_count} clientes em alto risco de churn, ARR médio de ${avg_arr_at_risk:,}. ' ||
+                            'Se {churn_reduction_pct}% forem retidos, economizamos ${arr_saved:,}. ' ||
+                            'Adicionalmente, {upsell_pct}% da base de {active_count} clientes ativos seria upsold, ' ||
+                            'gerando ${arr_expansion:,} de expansão. ' ||
+                            'Forneça: 1) Avaliação da viabilidade, 2) Principais riscos, ' ||
+                            '3) Ações prioritárias recomendadas. Máximo 200 palavras em português.'
+                    ))
+                ) AS analysis
+            """)
+            st.markdown(analysis["ANALYSIS"].iloc[0])
+        except Exception as e:
+            st.warning(f"Análise não disponível: {e}")
