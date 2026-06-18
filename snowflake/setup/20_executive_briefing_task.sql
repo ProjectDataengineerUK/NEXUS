@@ -117,7 +117,7 @@ def run(session):
             results.append(f"{org_id}:EMPTY_RESPONSE")
             continue
 
-        # 5. Persistir em AI.EXECUTIVE_BRIEFINGS (parametrizado — evita $$ aninhado)
+        # 5. Persistir em AI.EXECUTIVE_BRIEFINGS (parametrizado — sem delimitadores aninhados)
         session.sql("""
             INSERT INTO AI.EXECUTIVE_BRIEFINGS
                 (org_id, briefing_date, briefing_type, content, kpi_snapshot,
@@ -125,7 +125,7 @@ def run(session):
             VALUES (?, CURRENT_DATE(), 'DAILY', ?, PARSE_JSON(?), ?, 0, ?)
         """, params=[org_id, briefing_text, kpi_str, model, latency_ms]).collect()
 
-        # 6. Registrar em AI.RECOMMENDATIONS (escape simples — sem $$ aninhado)
+        # 6. Registrar em AI.RECOMMENDATIONS (escape simples — sem delimitadores aninhados)
         brief_safe = briefing_text[:1000].replace("'", "''")
         session.sql(f"""
             MERGE INTO AI.RECOMMENDATIONS AS tgt
