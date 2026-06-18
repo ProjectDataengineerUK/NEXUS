@@ -453,19 +453,25 @@ jobs:
           upload_glob("snowflake/models/*.py",                   "snowflake",           "models")
           print("Artifacts uploaded.")
 
-          # Remover versão anterior do canal e deregistrar
+          # Verificar se a versão já existe
           rows = cs.execute(f"SHOW VERSIONS IN APPLICATION PACKAGE {PKG}").fetchall()
           col  = [d[0].upper() for d in cs.description]
-          for row in rows:
-              vname = row[col.index("VERSION")]
-              if vname.upper() == VSLUG.upper():
-                  silent(f"ALTER APPLICATION PACKAGE {PKG} MODIFY RELEASE CHANNEL DEFAULT REMOVE VERSION {vname}")
-                  silent(f"ALTER APPLICATION PACKAGE {PKG} DEREGISTER VERSION {vname}")
+          version_exists = any(
+              row[col.index("VERSION")].upper() == VSLUG.upper()
+              for row in rows
+          )
 
-          # Registrar versão e adicionar ao canal
-          cs.execute(f"ALTER APPLICATION PACKAGE {PKG} REGISTER VERSION {VSLUG} USING '{STAGE}' LABEL = '{VLABEL}'")
-          silent(f"ALTER APPLICATION PACKAGE {PKG} MODIFY RELEASE CHANNEL DEFAULT ADD VERSION {VSLUG}")
-          print(f"Version {VSLUG} ({VLABEL}) released.")
+          if version_exists:
+              # ADD PATCH atualiza o código sem recriar a versão nem tocar no release channel
+              cs.execute(f"ALTER APPLICATION PACKAGE {PKG} ADD PATCH FOR VERSION {VSLUG} USING '{STAGE}'")
+              print(f"Patch added to existing version {VSLUG}.")
+          else:
+              # Primeira criação: ADD VERSION + associar ao canal DEFAULT
+              cs.execute(f"ALTER APPLICATION PACKAGE {PKG} ADD VERSION {VSLUG} USING '{STAGE}'")
+              silent(f"ALTER APPLICATION PACKAGE {PKG} MODIFY RELEASE CHANNEL DEFAULT ADD VERSION {VSLUG}")
+              print(f"Version {VSLUG} created and added to DEFAULT channel.")
+
+          print(f"Release {VSLUG} concluída.")
 
           cs.close()
           conn.close()
