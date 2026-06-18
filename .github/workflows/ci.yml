@@ -394,7 +394,7 @@ jobs:
       SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
       # Fail-open em OCSP: runners GitHub Actions podem não alcançar servidores OCSP
       # para certificados GCS (storage.googleapis.com). Sem isso o upload falha com 254007.
-      SNOWFLAKE_OCSP_FAIL_OPEN: "true"
+      SF_OCSP_FAIL_OPEN: "true"
 
     steps:
       - uses: actions/checkout@v4
@@ -419,11 +419,12 @@ jobs:
               'default_connection_name = "dev"',
               "",
               "[connections.dev]",
-              f'account   = "{acc}"',
-              f'user      = "{user}"',
-              f'password  = "{pwd}"',
-              'role      = "ACCOUNTADMIN"',
-              'warehouse = "NEXUS_COMPUTE_WH"',
+              f'account       = "{acc}"',
+              f'user          = "{user}"',
+              f'password      = "{pwd}"',
+              'role          = "ACCOUNTADMIN"',
+              'warehouse     = "NEXUS_COMPUTE_WH"',
+              'insecure_mode = true',
           ]
           cfg.write_text("\n".join(lines) + "\n")
           cfg.chmod(0o600)
