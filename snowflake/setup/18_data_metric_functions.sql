@@ -21,7 +21,9 @@ $$
 $$;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- DMF 2: Freshness — horas desde o registro mais recente
+-- DMF 2: Freshness — epoch hours do registro mais recente (determinístico)
+-- Staleness real = (epoch_hours_now - valor_retornado), calculado na view.
+-- Snowflake proíbe CURRENT_TIMESTAMP em corpos de DMF (erro 510101).
 -- ─────────────────────────────────────────────────────────────────────────────
 
 CREATE OR REPLACE DATA METRIC FUNCTION GOVERNANCE.DMF_FRESHNESS_HOURS(
@@ -30,7 +32,9 @@ CREATE OR REPLACE DATA METRIC FUNCTION GOVERNANCE.DMF_FRESHNESS_HOURS(
 RETURNS NUMBER
 AS
 $$
-    SELECT DATEDIFF('hour', MAX(TS_COL), CURRENT_TIMESTAMP()) FROM ARG_T
+    SELECT DATEDIFF('hour', '1970-01-01'::TIMESTAMP_TZ,
+                    COALESCE(MAX(TS_COL), '1970-01-01'::TIMESTAMP_TZ))
+    FROM ARG_T
 $$;
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -78,7 +82,7 @@ ALTER TABLE CORE.TRANSACTIONS ADD DATA METRIC FUNCTION
     GOVERNANCE.DMF_NULL_COUNT ON (customer_id);
 
 ALTER TABLE CORE.TRANSACTIONS ADD DATA METRIC FUNCTION
-    GOVERNANCE.DMF_FRESHNESS_HOURS ON (transaction_date);
+    GOVERNANCE.DMF_FRESHNESS_HOURS ON (created_at);
 
 -- CORE.TICKETS
 ALTER TABLE CORE.TICKETS SET DATA_METRIC_SCHEDULE = '60 MINUTE';
@@ -104,8 +108,10 @@ SELECT
     CASE
         WHEN metric_name = 'DMF_NULL_COUNT'       AND value > 0   THEN 'WARN'
         WHEN metric_name = 'DMF_DUPLICATE_COUNT'  AND value > 0   THEN 'FAIL'
-        WHEN metric_name = 'DMF_FRESHNESS_HOURS'  AND value > 24  THEN 'WARN'
-        WHEN metric_name = 'DMF_FRESHNESS_HOURS'  AND value > 48  THEN 'FAIL'
+        WHEN metric_name = 'DMF_FRESHNESS_HOURS'
+             AND DATEDIFF('hour','1970-01-01'::TIMESTAMP_TZ,measurement_time) - value > 48 THEN 'FAIL'
+        WHEN metric_name = 'DMF_FRESHNESS_HOURS'
+             AND DATEDIFF('hour','1970-01-01'::TIMESTAMP_TZ,measurement_time) - value > 24 THEN 'WARN'
         ELSE 'OK'
     END                                                             AS quality_status
 FROM TABLE(
@@ -127,8 +133,10 @@ SELECT
     CASE
         WHEN metric_name = 'DMF_NULL_COUNT'       AND value > 0   THEN 'WARN'
         WHEN metric_name = 'DMF_DUPLICATE_COUNT'  AND value > 0   THEN 'FAIL'
-        WHEN metric_name = 'DMF_FRESHNESS_HOURS'  AND value > 24  THEN 'WARN'
-        WHEN metric_name = 'DMF_FRESHNESS_HOURS'  AND value > 48  THEN 'FAIL'
+        WHEN metric_name = 'DMF_FRESHNESS_HOURS'
+             AND DATEDIFF('hour','1970-01-01'::TIMESTAMP_TZ,measurement_time) - value > 48 THEN 'FAIL'
+        WHEN metric_name = 'DMF_FRESHNESS_HOURS'
+             AND DATEDIFF('hour','1970-01-01'::TIMESTAMP_TZ,measurement_time) - value > 24 THEN 'WARN'
         ELSE 'OK'
     END
 FROM TABLE(
@@ -149,8 +157,10 @@ SELECT
     value,
     CASE
         WHEN metric_name = 'DMF_NULL_COUNT'       AND value > 0   THEN 'WARN'
-        WHEN metric_name = 'DMF_FRESHNESS_HOURS'  AND value > 24  THEN 'WARN'
-        WHEN metric_name = 'DMF_FRESHNESS_HOURS'  AND value > 48  THEN 'FAIL'
+        WHEN metric_name = 'DMF_FRESHNESS_HOURS'
+             AND DATEDIFF('hour','1970-01-01'::TIMESTAMP_TZ,measurement_time) - value > 48 THEN 'FAIL'
+        WHEN metric_name = 'DMF_FRESHNESS_HOURS'
+             AND DATEDIFF('hour','1970-01-01'::TIMESTAMP_TZ,measurement_time) - value > 24 THEN 'WARN'
         ELSE 'OK'
     END
 FROM TABLE(
