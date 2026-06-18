@@ -368,6 +368,28 @@ GRANT SELECT ON TABLE AUDIT.PROMPT_LOG TO APPLICATION ROLE NEXUS_ADMIN;
 -- Streamlit UI (referenciado por manifest.yml como default_streamlit)
 -- ─────────────────────────────────────────────────────────────────────────────
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Reference callback — chamado pelo framework ao consumer registrar objetos externos
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE PROCEDURE CORE.REGISTER_REFERENCE(ref_name VARCHAR, operation VARCHAR, ref_or_alias VARCHAR)
+RETURNS VARCHAR
+LANGUAGE SQL
+AS
+$$
+BEGIN
+    CASE (operation)
+        WHEN 'ADD'    THEN SELECT SYSTEM$SET_REFERENCE(:ref_name, :ref_or_alias);
+        WHEN 'REMOVE' THEN SELECT SYSTEM$REMOVE_REFERENCE(:ref_name);
+        WHEN 'CLEAR'  THEN SELECT SYSTEM$REMOVE_REFERENCE(:ref_name);
+    END CASE;
+    RETURN 'OK';
+END;
+$$;
+
+GRANT USAGE ON PROCEDURE CORE.REGISTER_REFERENCE(VARCHAR, VARCHAR, VARCHAR)
+    TO APPLICATION ROLE NEXUS_ADMIN;
+
 CREATE OR REPLACE STREAMLIT CORE.NEXUS_UI
     ROOT_LOCATION = '@CORE.APP_STAGE/streamlit'
     MAIN_FILE     = 'Home.py'

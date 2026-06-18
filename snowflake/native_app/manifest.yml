@@ -11,7 +11,7 @@ artifacts:
   default_streamlit: CORE.NEXUS_UI
 
 references:
-  - name: CUSTOMER_TABLE
+  - name: customer_table
     label: "Tabela de Clientes"
     description: "Tabela principal de clientes do consumer para integração com dados proprietários"
     object_type: TABLE
