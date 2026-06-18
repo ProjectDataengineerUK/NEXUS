@@ -106,7 +106,6 @@ SELECT
     SPLIT_PART(ref_entity_name, '.', 2)        AS table_schema,
     SPLIT_PART(ref_entity_name, '.', 3)        AS table_name,
     metric_name,
-    ref_column_name                             AS column_name,
     schedule,
     schedule_status
 FROM TABLE(
@@ -121,7 +120,6 @@ SELECT
     SPLIT_PART(ref_entity_name, '.', 2),
     SPLIT_PART(ref_entity_name, '.', 3),
     metric_name,
-    ref_column_name,
     schedule,
     schedule_status
 FROM TABLE(
@@ -136,7 +134,6 @@ SELECT
     SPLIT_PART(ref_entity_name, '.', 2),
     SPLIT_PART(ref_entity_name, '.', 3),
     metric_name,
-    ref_column_name,
     schedule,
     schedule_status
 FROM TABLE(
