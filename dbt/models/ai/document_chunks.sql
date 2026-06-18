@@ -55,6 +55,7 @@ final as (
         null::varchar(500)                              as section_title,
         chunk_index,
         chunk_text,
+        null::integer                                   as page_number,
         length(chunk_text)                              as char_count,
         current_timestamp()                             as created_at
     from paragraphs
