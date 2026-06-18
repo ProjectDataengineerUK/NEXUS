@@ -16,15 +16,24 @@ st.set_page_config(
 )
 
 ORG_ID = get_org_id()
-SEARCH_SERVICE = "AI.DOC_SEARCH"
-CHAT_MODEL = "mistral-large2"
+SEARCH_SERVICE          = "AI.DOC_SEARCH"
+CONTRACT_SEARCH_SERVICE = "AI.CONTRACT_SEARCH"
+CHAT_MODEL              = "mistral-large2"
 
 DOC_COLUMNS = ["chunk_text", "document_name", "document_type",
                "document_id", "section_title", "chunk_index"]
 
+CONTRACT_COLUMNS = ["chunk_text", "contract_name", "customer_name",
+                    "section_title", "contract_type", "document_id",
+                    "contract_value_usd", "end_date", "auto_renewal"]
+
 
 def cortex_search(query: str, doc_filter: str | None = None, limit: int = 5) -> list[dict]:
     return _cortex_search(query, SEARCH_SERVICE, DOC_COLUMNS, limit, doc_filter)
+
+
+def contract_search(query: str, limit: int = 5) -> list[dict]:
+    return _cortex_search(query, CONTRACT_SEARCH_SERVICE, CONTRACT_COLUMNS, limit)
 
 
 def cortex_complete(prompt: str) -> str:
@@ -38,7 +47,7 @@ with st.sidebar:
     st.divider()
     tab_choice = st.radio(
         "Navegação",
-        ["💬 Chat com Documentos", "📚 Biblioteca", "⬆️ Upload"],
+        ["💬 Chat com Documentos", "📋 Contratos", "📚 Biblioteca", "⬆️ Upload"],
     )
     st.divider()
     st.caption(f"Modelo de chat: `{CHAT_MODEL}`")
@@ -160,6 +169,71 @@ if tab_choice == "💬 Chat com Documentos":
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# TAB: Contratos
+# ─────────────────────────────────────────────────────────────────────────────
+
+elif tab_choice == "📋 Contratos":
+    st.markdown("## 📋 Contract Intelligence")
+    st.caption("Busca semântica em contratos, SLAs e aditivos — powered by Cortex Search.")
+
+    col_s1, col_s2 = st.columns([3, 1])
+    contract_query = col_s1.text_input(
+        "Buscar em contratos",
+        placeholder="Ex: cláusula de rescisão, penalidade por SLA, renovação automática…",
+    )
+    n_results = col_s2.slider("Resultados", 3, 10, 5)
+
+    if contract_query:
+        with st.spinner("Buscando em contratos…"):
+            results = contract_search(contract_query, limit=n_results)
+
+        if not results:
+            st.info("Nenhum trecho relevante encontrado. Faça upload de contratos na aba Upload.")
+        else:
+            st.success(f"{len(results)} trechos encontrados")
+            for i, r in enumerate(results, 1):
+                contract_name = r.get("contract_name", "—")
+                customer      = r.get("customer_name", "—")
+                section       = r.get("section_title", "")
+                ctype         = r.get("contract_type", "")
+                value         = r.get("contract_value_usd")
+                end_dt        = r.get("end_date", "")
+                renewal       = r.get("auto_renewal", False)
+                text          = r.get("chunk_text", "")
+
+                label = f"**{i}. {contract_name}** — {customer}"
+                if ctype:
+                    label += f" · _{ctype}_"
+                with st.expander(label, expanded=(i == 1)):
+                    st.markdown(text)
+                    meta = st.columns(3)
+                    meta[0].caption(f"Seção: {section or '—'}")
+                    meta[1].caption(f"Valor: {'${:,.0f}'.format(value) if value else '—'}")
+                    meta[2].caption(f"Vencimento: {end_dt or '—'} {'🔄' if renewal else ''}")
+
+    st.divider()
+
+    # Resumo de contratos próximos do vencimento
+    st.subheader("Contratos próximos do vencimento")
+    try:
+        expiring = run_query(f"""
+            SELECT contract_name, customer_name, end_date,
+                   contract_value_usd, auto_renewal, days_to_expiry
+            FROM NEXUS_APP.AI.V_CONTRACT_INTELLIGENCE
+            WHERE org_id = '{ORG_ID}'
+              AND renewal_status IN ('EXPIRING_SOON', 'RENEW_WATCH')
+            ORDER BY days_to_expiry
+            LIMIT 10
+        """)
+        if expiring.empty:
+            st.info("Nenhum contrato expirando nos próximos 90 dias.")
+        else:
+            st.dataframe(expiring, use_container_width=True, hide_index=True)
+    except Exception as e:
+        st.caption(f"Tabela V_CONTRACT_INTELLIGENCE ainda não populada: {e}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # TAB: Biblioteca
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -176,6 +250,8 @@ elif tab_choice == "📚 Biblioteca":
             d.processing_status,
             COUNT(ch.chunk_id)            AS chunks,
             d.summary,
+            d.document_category,
+            d.document_summary            AS ai_summary,
             d.created_at
         FROM CORE.DOCUMENTS d
         LEFT JOIN CORE.CUSTOMERS c
@@ -183,7 +259,7 @@ elif tab_choice == "📚 Biblioteca":
         LEFT JOIN AI.DOCUMENT_CHUNKS ch
             ON d.document_id = ch.document_id
         WHERE d.org_id = '{ORG_ID}'
-        GROUP BY 1,2,3,4,5,6,8,9
+        GROUP BY 1,2,3,4,5,6,8,9,10,11
         ORDER BY d.created_at DESC
     """)
 
@@ -201,26 +277,52 @@ elif tab_choice == "📚 Biblioteca":
         m3.metric("Chunks pesquisáveis", total_chunks)
         st.divider()
 
+        # Botão de enriquecimento em lote
+        unenriched = int(((lib_df["DOCUMENT_CATEGORY"].isna()) | (lib_df["DOCUMENT_CATEGORY"] == "")).sum())
+        if unenriched > 0:
+            if st.button(f"🤖 Enriquecer {unenriched} doc(s) com AI_CLASSIFY + AI_SUMMARIZE"):
+                with st.spinner("Classificando e resumindo documentos…"):
+                    try:
+                        session = get_session()
+                        session.sql(f"CALL CORE.ENRICH_DOCUMENTS_WITH_AI('{ORG_ID}')").collect()
+                        st.success("Enriquecimento concluído.")
+                        st.rerun()
+                    except Exception as ex:
+                        st.error(f"Erro: {ex}")
+
         for _, doc in lib_df.iterrows():
             status_icon = {"completed": "✅", "pending": "⏳", "failed": "❌"}.get(
                 doc["PROCESSING_STATUS"], "❓"
             )
+            category_badge = f" · 🏷️ `{doc['DOCUMENT_CATEGORY']}`" if doc.get("DOCUMENT_CATEGORY") else ""
             with st.expander(
-                f"{status_icon} **{doc['DOCUMENT_NAME']}** — `{doc['DOCUMENT_TYPE']}` "
-                f"· {doc['CHUNKS']} chunks"
+                f"{status_icon} **{doc['DOCUMENT_NAME']}** — `{doc['DOCUMENT_TYPE']}`"
+                f"{category_badge} · {doc['CHUNKS']} chunks"
             ):
                 col1, col2 = st.columns([3, 1])
                 with col1:
                     st.markdown(f"**Cliente/Entidade:** {doc['ENTITY_NAME']}")
                     st.markdown(f"**Tipo de entidade:** {doc['ENTITY_TYPE']}")
                     st.markdown(f"**Status:** {doc['PROCESSING_STATUS']}")
-                    if doc["SUMMARY"]:
+                    if doc.get("AI_SUMMARY"):
+                        st.markdown(f"**Sumário AI:**  \n_{doc['AI_SUMMARY']}_")
+                    elif doc.get("SUMMARY"):
                         st.markdown(f"**Sumário:**  \n_{doc['SUMMARY']}_")
                 with col2:
                     st.caption(f"Criado em: {str(doc['CREATED_AT'])[:10]}")
                     if st.button("🔍 Pesquisar neste doc", key=f"lib_search_{doc['DOCUMENT_ID']}"):
                         st.session_state["lib_filter_doc"] = doc["DOCUMENT_ID"]
                         st.info("Selecione 'Chat com Documentos' e filtre por este documento.")
+                    if not doc.get("DOCUMENT_CATEGORY"):
+                        if st.button("🤖 Classificar", key=f"enrich_{doc['DOCUMENT_ID']}"):
+                            try:
+                                session = get_session()
+                                session.sql(f"""
+                                    CALL CORE.ENRICH_DOCUMENTS_WITH_AI('{ORG_ID}')
+                                """).collect()
+                                st.rerun()
+                            except Exception as ex:
+                                st.error(str(ex))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
