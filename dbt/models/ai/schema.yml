@@ -18,4 +18,5 @@ models:
       - name: chunk_index
         tests:
           - dbt_utils.accepted_range:
-              min_value: 0
+              arguments:
+                min_value: 0

@@ -14,10 +14,12 @@ models:
       - name: new_mrr
         tests:
           - dbt_utils.accepted_range:
-              min_value: 0
+              arguments:
+                min_value: 0
       - name: churn_mrr
         tests:
           - dbt_utils.accepted_range:
-              min_value: 0
+              arguments:
+                min_value: 0
       - name: net_new_mrr
         description: "new_mrr + expansion_mrr - contraction_mrr - churn_mrr"

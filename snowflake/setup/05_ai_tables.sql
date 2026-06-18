@@ -72,7 +72,6 @@ CREATE TABLE IF NOT EXISTS NEXUS_APP.AI.DOCUMENT_CHUNKS (
     document_type   VARCHAR(100),
     chunk_index     INTEGER         NOT NULL,
     chunk_text      TEXT            NOT NULL,
-    page_number     INTEGER,
     section_title   VARCHAR(500),
     created_at      TIMESTAMP_TZ    NOT NULL DEFAULT CURRENT_TIMESTAMP(),
     PRIMARY KEY (chunk_id)

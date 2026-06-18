@@ -8,7 +8,8 @@ sources:
     freshness:
       warn_after:  {count: 24, period: hour}
       error_after: {count: 48, period: hour}
-    loaded_at_field: updated_at
+    config:
+      loaded_at_field: updated_at
 
     tables:
       - name: customers
@@ -42,7 +43,8 @@ sources:
           - name: mrr
             tests:
               - dbt_utils.accepted_range:
-                  min_value: 0
+                  arguments:
+                    min_value: 0
           - name: status
             tests:
               - accepted_values:
@@ -62,7 +64,8 @@ sources:
 
       - name: product_events
         description: "Eventos de uso do produto — engajamento e adoção de features."
-        loaded_at_field: occurred_at
+        config:
+          loaded_at_field: occurred_at
         columns:
           - name: event_id
             tests: [unique, not_null]
@@ -73,7 +76,8 @@ sources:
 
       - name: transactions
         description: "Transações financeiras — new_contract, renewal, upsell, churn."
-        loaded_at_field: created_at
+        config:
+          loaded_at_field: created_at
         columns:
           - name: transaction_id
             tests: [unique, not_null]
@@ -84,7 +88,8 @@ sources:
 
       - name: contracts
         description: "Contratos corporativos — valor, vigência, flags de risco e campos extraídos por Document AI."
-        loaded_at_field: updated_at
+        config:
+          loaded_at_field: updated_at
         columns:
           - name: contract_id
             tests: [unique, not_null]
@@ -97,7 +102,8 @@ sources:
 
       - name: documents
         description: "Documentos originais (PDFs, contratos) com texto extraído pelo Document AI."
-        loaded_at_field: created_at
+        config:
+          loaded_at_field: created_at
         columns:
           - name: document_id
             tests: [unique, not_null]
@@ -119,8 +125,9 @@ sources:
             tests:
               - not_null
               - dbt_utils.accepted_range:
-                  min_value: 0
-                  max_value: 1
+                  arguments:
+                    min_value: 0
+                    max_value: 1
           - name: risk_level
             tests:
               - accepted_values:

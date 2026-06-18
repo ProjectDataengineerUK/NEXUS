@@ -20,15 +20,17 @@ models:
         tests:
           - not_null
           - dbt_utils.accepted_range:
-              min_value: 0
-              max_value: 100
+              arguments:
+                min_value: 0
+                max_value: 100
 
       - name: churn_probability
         description: "Probabilidade de churn 0-1 do modelo Snowpark ML."
         tests:
           - dbt_utils.accepted_range:
-              min_value: 0
-              max_value: 1
+              arguments:
+                min_value: 0
+                max_value: 1
 
       - name: churn_risk_level
         tests:
@@ -39,7 +41,8 @@ models:
         description: "Annual Recurring Revenue em USD."
         tests:
           - dbt_utils.accepted_range:
-              min_value: 0
+              arguments:
+                min_value: 0
 
       - name: usage_trend
         tests:
