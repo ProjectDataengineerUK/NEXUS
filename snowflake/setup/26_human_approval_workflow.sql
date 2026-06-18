@@ -29,9 +29,8 @@ CREATE TABLE IF NOT EXISTS CORE.APPROVAL_QUEUE (
     PRIMARY KEY (approval_id)
 );
 
--- Índices para consultas frequentes
-CREATE INDEX IF NOT EXISTS IDX_APPROVAL_ORG_STATUS
-    ON CORE.APPROVAL_QUEUE (org_id, status, created_at);
+-- Clustering key para consultas frequentes por org e status
+ALTER TABLE CORE.APPROVAL_QUEUE CLUSTER BY (org_id, status);
 
 
 -- ─── SP: Submeter ação para aprovação ────────────────────────────────────────
@@ -101,17 +100,17 @@ BEGIN
       AND status      = 'pending'
       AND expires_at  > CURRENT_TIMESTAMP();
 
-    GET DIAGNOSTICS v_count = ROW_COUNT;
+    v_count := SQLROWCOUNT;
 
     IF (v_count = 0) THEN
         RETURN 'ERROR: Approval not found, already actioned, or expired.';
     END IF;
 
     -- Registra no audit log
-    INSERT INTO CORE.AUDIT_LOG
-        (org_id, action, resource_type, resource_id, user_name, details)
-    SELECT org_id, 'APPROVE', 'APPROVAL_QUEUE', :approval_id, :approved_by,
-           OBJECT_CONSTRUCT('action_type', action_type, 'risk_level', risk_level)
+    INSERT INTO NEXUS_APP.AUDIT.ACTION_LOG
+        (org_id, user_name, role_name, action_type, entity_type, entity_id, payload, status)
+    SELECT org_id, :approved_by, 'HUMAN', 'APPROVE', 'APPROVAL_QUEUE', :approval_id,
+           OBJECT_CONSTRUCT('action_type', action_type, 'risk_level', risk_level), 'completed'
     FROM CORE.APPROVAL_QUEUE WHERE approval_id = :approval_id;
 
     RETURN 'OK:APPROVED';
@@ -140,10 +139,10 @@ BEGIN
     WHERE approval_id = :approval_id
       AND status      = 'pending';
 
-    INSERT INTO CORE.AUDIT_LOG
-        (org_id, action, resource_type, resource_id, user_name, details)
-    SELECT org_id, 'REJECT', 'APPROVAL_QUEUE', :approval_id, :rejected_by,
-           OBJECT_CONSTRUCT('reason', :rejection_reason)
+    INSERT INTO NEXUS_APP.AUDIT.ACTION_LOG
+        (org_id, user_name, role_name, action_type, entity_type, entity_id, payload, status)
+    SELECT org_id, :rejected_by, 'HUMAN', 'REJECT', 'APPROVAL_QUEUE', :approval_id,
+           OBJECT_CONSTRUCT('reason', :rejection_reason), 'completed'
     FROM CORE.APPROVAL_QUEUE WHERE approval_id = :approval_id;
 
     RETURN 'OK:REJECTED';
