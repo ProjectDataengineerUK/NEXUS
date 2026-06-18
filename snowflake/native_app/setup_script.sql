@@ -131,6 +131,45 @@ CREATE TABLE IF NOT EXISTS AI.CHURN_SCORES (
     PRIMARY KEY (score_id)
 );
 
+CREATE TABLE IF NOT EXISTS AI.REVENUE_FORECAST (
+    forecast_id     VARCHAR(36)  NOT NULL DEFAULT UUID_STRING(),
+    org_id          VARCHAR(36)  NOT NULL,
+    forecast_date   DATE         NOT NULL,
+    forecast_value  DECIMAL(18,2) NOT NULL,
+    lower_bound     DECIMAL(18,2),
+    upper_bound     DECIMAL(18,2),
+    metric          VARCHAR(100) NOT NULL DEFAULT 'total_revenue',
+    model_version   VARCHAR(50),
+    generated_at    TIMESTAMP_TZ DEFAULT CURRENT_TIMESTAMP(),
+    PRIMARY KEY (forecast_id)
+);
+
+CREATE TABLE IF NOT EXISTS AI.ANOMALY_ALERTS (
+    alert_id        VARCHAR(36)  NOT NULL DEFAULT UUID_STRING(),
+    org_id          VARCHAR(36)  NOT NULL,
+    metric_name     VARCHAR(255) NOT NULL,
+    metric_date     DATE         NOT NULL,
+    metric_value    DECIMAL(18,4),
+    expected_value  DECIMAL(18,4),
+    deviation_pct   DECIMAL(8,4),
+    is_anomaly      BOOLEAN      NOT NULL DEFAULT FALSE,
+    severity        VARCHAR(20)  DEFAULT 'MEDIUM',
+    model_version   VARCHAR(50),
+    detected_at     TIMESTAMP_TZ DEFAULT CURRENT_TIMESTAMP(),
+    PRIMARY KEY (alert_id)
+);
+
+CREATE TABLE IF NOT EXISTS AI.EMBEDDINGS (
+    embedding_id    VARCHAR(36)  NOT NULL DEFAULT UUID_STRING(),
+    chunk_id        VARCHAR(36)  NOT NULL,
+    org_id          VARCHAR(36)  NOT NULL,
+    document_id     VARCHAR(36)  NOT NULL,
+    embedding       VECTOR(FLOAT, 1024),
+    model_name      VARCHAR(100) DEFAULT 'e5-base-v2',
+    created_at      TIMESTAMP_TZ DEFAULT CURRENT_TIMESTAMP(),
+    PRIMARY KEY (embedding_id)
+);
+
 CREATE TABLE IF NOT EXISTS AI.RECOMMENDATIONS (
     recommendation_id   VARCHAR(36)  NOT NULL DEFAULT UUID_STRING(),
     org_id              VARCHAR(36)  NOT NULL,
