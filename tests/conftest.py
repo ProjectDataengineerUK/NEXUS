@@ -4,9 +4,42 @@ Shared fixtures for all test suites (unit + integration + agent eval).
 Run: pytest tests/ -v
 """
 
+import pathlib
+import sys
+import types
+
+# ── make project root importable so 'snowflake.models.*' resolves locally ──
+_ROOT = pathlib.Path(__file__).parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+# ── stub snowflake.ml and snowflake.snowpark (not installed in CI) ──────────
+from unittest.mock import MagicMock  # noqa: E402
+
+
+def _stub(name: str, **attrs):
+    """Register a lightweight stub module so top-level imports don't fail."""
+    if name not in sys.modules:
+        mod = types.ModuleType(name)
+        mod.__path__ = []  # makes Python treat it as a package
+        for k, v in attrs.items():
+            setattr(mod, k, v)
+        sys.modules[name] = mod
+    return sys.modules[name]
+
+
+_stub("snowflake.ml")
+_stub("snowflake.ml.modeling")
+_stub("snowflake.ml.modeling.linear_model", LogisticRegression=MagicMock)
+_stub("snowflake.ml.modeling.pipeline",     Pipeline=MagicMock)
+_stub("snowflake.ml.modeling.preprocessing", StandardScaler=MagicMock)
+_stub("snowflake.snowpark",                 Session=MagicMock)
+_stub("snowflake.snowpark.functions",       col=MagicMock(), lit=MagicMock(), when=MagicMock())
+
+# ────────────────────────────────────────────────────────────────────────────
+
 import json
 import pytest
-from unittest.mock import MagicMock, patch
 
 
 # ─────────────────────────────────────────────────────────────────────────────
