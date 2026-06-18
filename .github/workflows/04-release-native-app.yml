@@ -23,6 +23,8 @@ jobs:
     name: "Package Native App"
     runs-on: ubuntu-latest
     environment: ${{ github.event.inputs.environment || 'prod' }}
+    permissions:
+      contents: write   # necessário para criar GitHub Releases
 
     env:
       SNOWFLAKE_ACCOUNT:  ${{ secrets.SNOWFLAKE_ACCOUNT }}
