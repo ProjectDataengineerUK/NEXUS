@@ -110,6 +110,22 @@ sources:
           - name: org_id
             tests: [not_null]
 
+      - name: opportunities
+        description: "Oportunidades de venda (upsell, renewal, expansion) vindas do CRM."
+        config:
+          loaded_at_field: updated_at
+        columns:
+          - name: opportunity_id
+            tests: [unique, not_null]
+          - name: customer_id
+            tests: [not_null]
+          - name: org_id
+            tests: [not_null]
+          - name: stage
+            tests:
+              - accepted_values:
+                  values: ['prospecting', 'qualification', 'proposal', 'negotiation', 'closed_won', 'closed_lost']
+
   - name: nexus_ai
     database: NEXUS_APP
     schema: AI
