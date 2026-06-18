@@ -1,0 +1,249 @@
+name: nexus_customer_360_model
+description: >
+  Modelo semântico NEXUS AI DataOps — Customer 360 Intelligence.
+  Focado em ações: identificar clientes em risco, priorizar retenção,
+  monitorar renovações e medir health score por segmento.
+  Complementa nexus_revenue_model com tabelas de recomendações e churn features.
+
+tables:
+  - name: customer_360
+    description: Visão consolidada 360° de cada cliente com métricas de saúde, receita e risco.
+    base_table:
+      database: NEXUS_APP
+      schema: MART
+      table: CUSTOMER_360
+
+    primary_key:
+      columns:
+        - customer_id
+
+    dimensions:
+      - name: customer_id
+        synonyms: ["id do cliente", "código do cliente"]
+        description: Identificador único do cliente.
+        expr: customer_id
+        data_type: VARCHAR
+        unique: true
+
+      - name: customer_name
+        synonyms: ["nome", "empresa", "cliente", "conta"]
+        description: Nome da empresa cliente.
+        expr: customer_name
+        data_type: VARCHAR
+
+      - name: org_id
+        synonyms: ["organização", "tenant"]
+        description: Identificador da organização (tenant).
+        expr: org_id
+        data_type: VARCHAR
+
+      - name: segment
+        synonyms: ["segmento", "porte", "tier"]
+        description: Segmento de mercado — ENTERPRISE, MID_MARKET, SMB.
+        expr: segment
+        data_type: VARCHAR
+
+      - name: lifecycle_stage
+        synonyms: ["status", "estágio", "fase", "situação"]
+        description: Estágio do ciclo de vida — active, at_risk, churned.
+        expr: lifecycle_stage
+        data_type: VARCHAR
+
+      - name: churn_risk_level
+        synonyms: ["risco de churn", "nível de risco", "risco", "prioridade"]
+        description: Nível de risco de cancelamento — HIGH, MEDIUM, LOW.
+        expr: churn_risk_level
+        data_type: VARCHAR
+
+      - name: nearest_renewal_date
+        synonyms: ["data de renovação", "vencimento", "renewal", "próxima renovação"]
+        description: Data da próxima renovação de subscrição.
+        expr: nearest_renewal_date
+        data_type: DATE
+
+      - name: region
+        synonyms: ["região", "localização"]
+        description: Região geográfica do cliente.
+        expr: region
+        data_type: VARCHAR
+
+      - name: industry
+        synonyms: ["indústria", "setor", "vertical"]
+        description: Setor de atuação do cliente.
+        expr: industry
+        data_type: VARCHAR
+
+      - name: usage_trend
+        synonyms: ["tendência de uso", "engajamento", "trend"]
+        description: Tendência de uso — up, stable, down, no_data.
+        expr: usage_trend
+        data_type: VARCHAR
+
+    measures:
+      - name: total_customers
+        synonyms: ["número de clientes", "total de clientes", "quantidade", "contagem"]
+        description: Contagem total de clientes.
+        expr: "1"
+        data_type: NUMBER
+        agg: count
+
+      - name: avg_health_score
+        synonyms: ["health score médio", "score médio", "pontuação média"]
+        description: Média do health score (0-100).
+        expr: health_score
+        data_type: NUMBER
+        agg: avg
+
+      - name: high_risk_count
+        synonyms: ["clientes em alto risco", "alto risco", "críticos"]
+        description: Clientes com churn_risk_level = HIGH.
+        expr: "CASE WHEN churn_risk_level = 'HIGH' THEN 1 ELSE 0 END"
+        data_type: NUMBER
+        agg: sum
+
+      - name: avg_arr
+        synonyms: ["ARR médio", "receita anual média"]
+        description: Annual Recurring Revenue médio por cliente em USD.
+        expr: arr
+        data_type: NUMBER
+        agg: avg
+
+      - name: total_arr
+        synonyms: ["ARR total", "receita total", "receita recorrente total"]
+        description: Soma do ARR de todos os clientes em USD.
+        expr: arr
+        data_type: NUMBER
+        agg: sum
+
+      - name: avg_churn_probability
+        synonyms: ["probabilidade média de churn", "risco médio de cancelamento"]
+        description: Probabilidade média de cancelamento entre 0 e 1.
+        expr: churn_probability
+        data_type: NUMBER
+        agg: avg
+
+      - name: revenue_at_risk
+        synonyms: ["receita em risco", "ARR em risco", "risco financeiro"]
+        description: ARR em risco de cancelamento segundo o modelo de churn.
+        expr: expected_revenue_at_risk
+        data_type: NUMBER
+        agg: sum
+
+  - name: recommendations
+    description: Recomendações de ação geradas pela IA para clientes em risco.
+    base_table:
+      database: NEXUS_APP
+      schema: AI
+      table: RECOMMENDATIONS
+
+    primary_key:
+      columns:
+        - recommendation_id
+
+    dimensions:
+      - name: recommendation_type
+        synonyms: ["tipo de recomendação", "ação sugerida"]
+        description: Tipo de recomendação — churn_prevention, upsell, etc.
+        expr: recommendation_type
+        data_type: VARCHAR
+
+      - name: priority
+        synonyms: ["prioridade", "urgência"]
+        description: Prioridade da ação — HIGH, MEDIUM, LOW.
+        expr: priority
+        data_type: VARCHAR
+
+      - name: status
+        synonyms: ["status da recomendação", "situação da ação"]
+        description: Status — pending, accepted, dismissed.
+        expr: status
+        data_type: VARCHAR
+
+    measures:
+      - name: pending_recommendations
+        synonyms: ["recomendações pendentes", "ações pendentes"]
+        description: Recomendações ativas ainda não executadas.
+        expr: "CASE WHEN status = 'pending' AND is_active THEN 1 ELSE 0 END"
+        data_type: NUMBER
+        agg: sum
+
+      - name: expected_impact
+        synonyms: ["impacto esperado", "receita recuperável", "impacto financeiro"]
+        description: Impacto financeiro esperado em USD se a ação for executada.
+        expr: expected_impact_usd
+        data_type: NUMBER
+        agg: sum
+
+relationships:
+  - name: customer_recommendations
+    left_table: customer_360
+    right_table: recommendations
+    join_type: LEFT_OUTER
+    relationship_columns:
+      - left_column:  customer_id
+        right_column: entity_id
+
+verified_queries:
+  - name: clientes_alto_risco_churn
+    question: "Quais clientes têm maior risco de churn?"
+    verified_at: "2026-06-18"
+    sql: |
+      SELECT customer_name, segment, churn_probability, arr,
+             expected_revenue_at_risk, churn_risk_level, nearest_renewal_date
+      FROM NEXUS_APP.MART.CUSTOMER_360
+      WHERE churn_risk_level = 'HIGH'
+        AND lifecycle_stage != 'churned'
+      ORDER BY churn_probability DESC, expected_revenue_at_risk DESC
+      LIMIT 20
+
+  - name: health_score_por_segmento
+    question: "Qual o health score médio por segmento?"
+    verified_at: "2026-06-18"
+    sql: |
+      SELECT segment,
+             ROUND(AVG(health_score), 1)      AS avg_health_score,
+             COUNT(*)                          AS total_customers,
+             ROUND(AVG(churn_probability), 3)  AS avg_churn_probability
+      FROM NEXUS_APP.MART.CUSTOMER_360
+      WHERE lifecycle_stage != 'churned'
+      GROUP BY segment
+      ORDER BY avg_health_score DESC
+
+  - name: renovacoes_proximas_90d
+    question: "Quais clientes têm renovação nos próximos 90 dias?"
+    verified_at: "2026-06-18"
+    sql: |
+      SELECT customer_name, segment, arr, nearest_renewal_date,
+             churn_risk_level, health_score
+      FROM NEXUS_APP.MART.CUSTOMER_360
+      WHERE nearest_renewal_date <= DATEADD('day', 90, CURRENT_DATE())
+        AND lifecycle_stage = 'active'
+      ORDER BY nearest_renewal_date ASC
+
+  - name: total_arr_em_risco
+    question: "Qual o total de ARR em risco de churn?"
+    verified_at: "2026-06-18"
+    sql: |
+      SELECT
+          SUM(expected_revenue_at_risk)                                       AS total_arr_at_risk,
+          COUNT(*)                                                            AS at_risk_customers,
+          ROUND(SUM(expected_revenue_at_risk) / NULLIF(SUM(arr), 0) * 100, 1) AS pct_arr_at_risk
+      FROM NEXUS_APP.MART.CUSTOMER_360
+      WHERE churn_risk_level IN ('HIGH', 'MEDIUM')
+        AND lifecycle_stage != 'churned'
+
+  - name: recomendacoes_pendentes_por_cliente
+    question: "Quais clientes têm recomendações de ação pendentes?"
+    verified_at: "2026-06-18"
+    sql: |
+      SELECT c.customer_name, c.segment, c.churn_risk_level,
+             COUNT(r.recommendation_id)       AS pending_actions,
+             SUM(r.expected_impact_usd)        AS total_expected_impact
+      FROM NEXUS_APP.MART.CUSTOMER_360 c
+      JOIN NEXUS_APP.AI.RECOMMENDATIONS r
+           ON c.customer_id = r.entity_id
+          AND r.status = 'pending'
+          AND r.is_active = TRUE
+      GROUP BY 1, 2, 3
+      ORDER BY total_expected_impact DESC
+      LIMIT 20

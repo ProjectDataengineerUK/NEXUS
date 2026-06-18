@@ -26,13 +26,19 @@ renamed as (
         null::integer                                         as first_response_minutes,
         null::integer                                         as resolution_minutes,
 
-        -- normaliza sentiment -1..1
+        -- sentimento calculado via Cortex AI (escala -1..1)
+        snowflake.cortex.sentiment(
+            coalesce(description, subject, '')
+        )                                                     as sentiment_score,
         case
-            when sentiment_score > 0.2  then 'positive'
-            when sentiment_score < -0.2 then 'negative'
-            else                             'neutral'
+            when snowflake.cortex.sentiment(
+                     coalesce(description, subject, '')
+                 ) >= 0.3  then 'positive'
+            when snowflake.cortex.sentiment(
+                     coalesce(description, subject, '')
+                 ) <= -0.3 then 'negative'
+            else                'neutral'
         end                                                   as sentiment_label,
-        cast(sentiment_score as decimal(4, 3))                as sentiment_score,
 
         cast(created_at as timestamp_tz)                      as created_at,
         cast(resolved_at as timestamp_tz)                     as resolved_at,
