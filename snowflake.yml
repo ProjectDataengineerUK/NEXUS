@@ -1,0 +1,36 @@
+definition_version: 1
+
+native_app:
+  name: NEXUS_AI_DATAOPS
+
+  deploy_root: .snow/deploy/
+
+  package:
+    name: NEXUS_AI_DATAOPS_PKG
+    role: ACCOUNTADMIN
+    distribution: internal
+    warehouse: NEXUS_COMPUTE_WH
+
+  application:
+    name: NEXUS_AI_DATAOPS_TEST
+    role: ACCOUNTADMIN
+    warehouse: NEXUS_COMPUTE_WH
+    debug: true
+
+  artifacts:
+    - src: snowflake/native_app/setup_script.sql
+      dest: setup_script.sql
+    - src: snowflake/native_app/manifest.yml
+      dest: manifest.yml
+    - src: snowflake/native_app/readme.md
+      dest: readme.md
+    - src: app/streamlit/
+      dest: streamlit/
+    - src: snowflake/cortex/semantic_models/
+      dest: cortex/semantic_models/
+    - src: snowflake/cortex/agents/
+      dest: cortex/agents/
+    - src: snowflake/cortex/stored_procedures/
+      dest: cortex/stored_procedures/
+    - src: snowflake/models/
+      dest: models/

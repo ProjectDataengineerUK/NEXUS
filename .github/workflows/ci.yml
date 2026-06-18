@@ -381,114 +381,49 @@ jobs:
           print("Setup scripts executed.")
           EOF
 
-  release-dev:
-    name: "Release Native App (dev automático)"
+  native-app-dev:
+    name: "Native App — dev"
     runs-on: ubuntu-latest
     needs: deploy-dev
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     environment: dev
 
     env:
-      SNOWFLAKE_ACCOUNT:   ${{ secrets.SNOWFLAKE_ACCOUNT }}
-      SNOWFLAKE_USER:      ${{ secrets.SNOWFLAKE_USER }}
-      SNOWFLAKE_PASSWORD:  ${{ secrets.SNOWFLAKE_PASSWORD }}
+      SNOWFLAKE_ACCOUNT:  ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_USER:     ${{ secrets.SNOWFLAKE_USER }}
+      SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Instalar snowflake-connector
-        run: pip install snowflake-connector-python
+      - name: Instalar Snowflake CLI
+        run: pip install snowflake-cli==3.5.0
 
-      - name: Upload artefatos e registrar versão
+      - name: Configurar conexão
         run: |
-          python - <<'EOF'
-          import snowflake.connector, os, glob
+          python3 - <<'EOF'
+          import os, pathlib
+          cfg = pathlib.Path.home() / ".snowflake" / "config.toml"
+          cfg.parent.mkdir(exist_ok=True)
+          cfg.write_text(f"""
+          default_connection_name = "dev"
 
-          conn = snowflake.connector.connect(
-              account=os.environ["SNOWFLAKE_ACCOUNT"],
-              user=os.environ["SNOWFLAKE_USER"],
-              password=os.environ["SNOWFLAKE_PASSWORD"],
-              role="ACCOUNTADMIN",
-              warehouse="NEXUS_COMPUTE_WH",
-          )
-          cs = conn.cursor()
-
-          PKG     = "NEXUS_AI_DATAOPS_PKG"
-          VSLUG   = "vdev"
-          VLABEL  = "dev-auto"
-          STAGE   = f"@{PKG}.PUBLIC.APP_STAGE/{VSLUG}"
-
-          def silent(sql):
-              try: cs.execute(sql); return True
-              except Exception as e: print(f"  [skip] {e}"); return False
-
-          # Garantir Application Package e stage existem
-          silent(f"CREATE APPLICATION PACKAGE IF NOT EXISTS {PKG} COMMENT = 'NEXUS AI DataOps'")
-          silent(f"CREATE STAGE IF NOT EXISTS {PKG}.PUBLIC.APP_STAGE DIRECTORY = (ENABLE = TRUE)")
-
-          # Upload artefatos
-          def upload_glob(pattern, base, prefix):
-              for f in sorted(glob.glob(pattern, recursive=True)):
-                  if "__pycache__" in f: continue
-                  rel     = os.path.relpath(f, base)
-                  rel_dir = os.path.dirname(rel)
-                  dest    = f"{STAGE}/{prefix}/{rel_dir}/" if rel_dir else f"{STAGE}/{prefix}/"
-                  silent(f"PUT file://{os.path.abspath(f)} {dest} OVERWRITE=TRUE AUTO_COMPRESS=FALSE")
-
-          for core_file in ["snowflake/native_app/manifest.yml",
-                             "snowflake/native_app/setup_script.sql",
-                             "snowflake/native_app/readme.md"]:
-              if os.path.exists(core_file):
-                  silent(f"PUT file://{os.path.abspath(core_file)} {STAGE}/ OVERWRITE=TRUE AUTO_COMPRESS=FALSE")
-
-          upload_glob("app/streamlit/**/*.*",                    "app/streamlit",       "streamlit")
-          upload_glob("snowflake/cortex/semantic_models/*.yaml", "snowflake/cortex",    "cortex")
-          upload_glob("snowflake/cortex/agents/*.yaml",          "snowflake/cortex",    "cortex")
-          upload_glob("snowflake/cortex/stored_procedures/*.sql","snowflake/cortex",    "cortex")
-          upload_glob("snowflake/models/*.py",                   "snowflake",           "models")
-          print("Artifacts uploaded.")
-
-          # Verificar se a versão já existe
-          rows = cs.execute(f"SHOW VERSIONS IN APPLICATION PACKAGE {PKG}").fetchall()
-          col  = [d[0].upper() for d in cs.description]
-          version_exists = any(
-              row[col.index("VERSION")].upper() == VSLUG.upper()
-              for row in rows
-          )
-
-          if version_exists:
-              cs.execute(f"ALTER APPLICATION PACKAGE {PKG} ADD PATCH FOR VERSION {VSLUG} USING '{STAGE}'")
-              print(f"Patch added to existing version {VSLUG}.")
-          else:
-              cs.execute(f"ALTER APPLICATION PACKAGE {PKG} ADD VERSION {VSLUG} USING '{STAGE}'")
-              silent(f"ALTER APPLICATION PACKAGE {PKG} MODIFY RELEASE CHANNEL DEFAULT ADD VERSION {VSLUG}")
-              print(f"Version {VSLUG} created and added to DEFAULT channel.")
-
-          # Recriar a aplicação de teste para re-executar setup_script.sql com o schema atualizado.
-          # ADD PATCH atualiza código mas não re-executa DDL — só DROP+CREATE garante isso em dev.
-          APP = "NEXUS_AI_DATAOPS_TEST"
-          silent(f"DROP APPLICATION IF EXISTS {APP} CASCADE")
-          cs.execute(f"""
-              CREATE APPLICATION {APP}
-                  FROM APPLICATION PACKAGE {PKG}
-                  USING @{PKG}.PUBLIC.APP_STAGE/{VSLUG}
-                  COMMENT = 'Dev test instance — auto-recreated on every deploy'
+          [connections.dev]
+          account   = "{os.environ['SNOWFLAKE_ACCOUNT']}"
+          user      = "{os.environ['SNOWFLAKE_USER']}"
+          password  = "{os.environ['SNOWFLAKE_PASSWORD']}"
+          role      = "ACCOUNTADMIN"
+          warehouse = "NEXUS_COMPUTE_WH"
           """)
-          # Dar acesso ao role de administração para usar o app no Streamlit
-          silent(f"GRANT APPLICATION ROLE {APP}.NEXUS_ADMIN  TO ROLE ACCOUNTADMIN")
-          silent(f"GRANT APPLICATION ROLE {APP}.NEXUS_ANALYST TO ROLE ACCOUNTADMIN")
-          print(f"App {APP} recreated — setup_script.sql executed with fresh schema.")
-
-          print(f"Release {VSLUG} concluída.")
-
-          cs.close()
-          conn.close()
           EOF
+
+      - name: Deploy Native App
+        # --force: recria o app do zero → re-executa setup_script.sql → schema sempre atualizado
+        run: snow app run --connection dev --force
 
   deploy-prod:
     name: "Deploy artefatos (prod)"
