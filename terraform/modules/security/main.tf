@@ -115,31 +115,14 @@ resource "snowflake_network_policy_attachment" "nexus_account" {
 
 # ─── Tag-Based Masking (aplica masking_policy via tag PII) ────────────────────
 
-# Associação de tags a masking policies (requer Snowflake Enterprise Edition)
-# Snowflake aplica automaticamente a policy em qualquer coluna com a tag correspondente.
+# O provider Snowflake associa UMA masking policy por tag (não por valor da tag).
+# A granularidade por valor ("email", "phone", "cpf") é gerenciada via ALTER TAG
+# nos scripts SQL de setup (24_pii_tagging.sql).
+# Aqui registramos a policy genérica VARCHAR como default da tag PII.
 
-resource "snowflake_tag_masking_policy_association" "pii_email" {
-  tag_id            = "${var.database_name}.GOVERNANCE.PII"
-  masking_policy_id = "${var.database_name}.GOVERNANCE.${snowflake_masking_policy.email.name}"
-  tag_value         = "email"
-}
-
-resource "snowflake_tag_masking_policy_association" "pii_phone" {
-  tag_id            = "${var.database_name}.GOVERNANCE.PII"
-  masking_policy_id = "${var.database_name}.GOVERNANCE.${snowflake_masking_policy.phone.name}"
-  tag_value         = "phone"
-}
-
-resource "snowflake_tag_masking_policy_association" "pii_string" {
+resource "snowflake_tag_masking_policy_association" "pii_default" {
   tag_id            = "${var.database_name}.GOVERNANCE.PII"
   masking_policy_id = "${var.database_name}.GOVERNANCE.${snowflake_masking_policy.pii_string.name}"
-  tag_value         = "pii"
-}
-
-resource "snowflake_tag_masking_policy_association" "pii_cpf" {
-  tag_id            = "${var.database_name}.GOVERNANCE.PII"
-  masking_policy_id = "${var.database_name}.GOVERNANCE.${snowflake_masking_policy.pii_string.name}"
-  tag_value         = "cpf"
 }
 
 
