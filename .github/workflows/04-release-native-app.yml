@@ -158,28 +158,23 @@ jobs:
               try: fn(*args, **kwargs)
               except Exception as e: print(f"  [skip] {e}")
 
-          # Idempotência: limpar versão anterior do canal e re-registrar
-          # 1. Remover todas as versões do canal DEFAULT para abrir espaço
+          # Com release channels habilitados, a API correta é REGISTER/DEREGISTER
+          # (não ADD/DROP). DEREGISTER remove a versão de TODOS os canais + package.
+
+          # 1. DEREGISTER todas as versões existentes para liberar o slot
           rows = cs.execute(
               "SHOW VERSIONS IN APPLICATION PACKAGE NEXUS_AI_DATAOPS_PKG"
           ).fetchall()
           col = [d[0].upper() for d in cs.description]
           for row in rows:
               vname = row[col.index("VERSION")]
-              print(f"  Removing {vname} from DEFAULT channel...")
+              print(f"  Deregistering {vname}...")
               silent(cs.execute, f"""
                   ALTER APPLICATION PACKAGE NEXUS_AI_DATAOPS_PKG
-                      MODIFY RELEASE CHANNEL DEFAULT
-                      REMOVE VERSION {vname}
+                      DEREGISTER VERSION {vname}
               """)
 
-          # 2. Dropar o slug atual se já existir (re-registro limpo)
-          silent(cs.execute, f"""
-              ALTER APPLICATION PACKAGE NEXUS_AI_DATAOPS_PKG
-                  DROP VERSION {VERSION_SLUG}
-          """)
-
-          # 3. Registrar a versão nova
+          # 2. REGISTER a versão nova (cria no package e associa ao DEFAULT channel)
           cs.execute(f"""
               ALTER APPLICATION PACKAGE NEXUS_AI_DATAOPS_PKG
                   REGISTER VERSION {VERSION_SLUG}
@@ -187,7 +182,7 @@ jobs:
                   LABEL = '{VERSION_LABEL}'
           """)
 
-          # 4. Adicionar ao canal DEFAULT
+          # 3. Adicionar ao canal DEFAULT
           cs.execute(f"""
               ALTER APPLICATION PACKAGE NEXUS_AI_DATAOPS_PKG
                   MODIFY RELEASE CHANNEL DEFAULT
