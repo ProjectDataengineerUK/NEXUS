@@ -145,6 +145,7 @@ CREATE OR REPLACE TASK CORE.TASK_CONTRACT_EXTRACTION
     SCHEDULE  = 'USING CRON 0 */4 * * * UTC'
     COMMENT   = 'Auto-extract clauses from newly uploaded contracts'
 AS
+$$
 DECLARE
     v_doc_id VARCHAR;
 BEGIN
@@ -162,5 +163,6 @@ BEGIN
         CALL CORE.EXTRACT_CONTRACT_CLAUSES(:v_doc_id);
     END FOR;
 END;
+$$
 
 ALTER TASK CORE.TASK_CONTRACT_EXTRACTION RESUME;

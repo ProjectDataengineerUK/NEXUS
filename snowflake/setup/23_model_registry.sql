@@ -197,6 +197,7 @@ CREATE OR REPLACE TASK ML.TASK_MODEL_EVALUATION
     SCHEDULE  = 'USING CRON 0 3 * * * UTC'
     COMMENT   = 'Daily model performance evaluation and drift detection'
 AS
+$$
 BEGIN
     -- Churn model: recompute precision/recall on last 30d ground truth
     INSERT INTO NEXUS_APP.ML.MODEL_PERFORMANCE_LOG
@@ -229,6 +230,7 @@ BEGIN
     FROM NEXUS_APP.MART.CUSTOMER_360
     WHERE health_score IS NOT NULL;
 END;
+$$
 
 ALTER TASK ML.TASK_MODEL_EVALUATION RESUME;
 

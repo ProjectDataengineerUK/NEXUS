@@ -157,6 +157,7 @@ CREATE OR REPLACE TASK CORE.TASK_DAILY_ALERTS
     SCHEDULE  = 'USING CRON 0 6 * * * UTC'
     COMMENT   = 'Daily Slack digest for high-risk customers and SLA breaches'
 AS
+$$
 DECLARE
     v_org VARCHAR;
 BEGIN
@@ -166,5 +167,6 @@ BEGIN
         CALL CORE.NOTIFY_SLA_BREACHES(:v_org);
     END FOR;
 END;
+$$
 
 ALTER TASK CORE.TASK_DAILY_ALERTS RESUME;
