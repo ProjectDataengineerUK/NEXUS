@@ -1,11 +1,20 @@
 name: "02 · Deploy — Artefatos Snowflake"
 
-# Roda após o terraform apply OU manualmente
+# Roda após o terraform apply, em push direto a main com artefatos alterados,
+# ou manualmente via workflow_dispatch.
 on:
   workflow_run:
     workflows: ["01 · Terraform — Infraestrutura Snowflake"]
     types: [completed]
     branches: [main]
+  push:
+    branches: [main]
+    paths:
+      - "snowflake/setup/**"
+      - "snowflake/cortex/**"
+      - "app/streamlit/**"
+      - "scripts/bootstrap.sh"
+      - ".github/workflows/02-deploy-snowflake.yml"
   workflow_dispatch:
     inputs:
       environment:
@@ -26,7 +35,8 @@ jobs:
     runs-on: ubuntu-latest
     if: |
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'dev')
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'dev') ||
+      github.event_name == 'push'
     environment: dev
 
     env:
