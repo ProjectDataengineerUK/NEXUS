@@ -113,17 +113,21 @@ resource "snowflake_network_policy_attachment" "nexus_account" {
 }
 
 
-# ─── Tag-Based Masking (aplica masking_policy via tag PII) ────────────────────
-
-# O provider Snowflake associa UMA masking policy por tag (não por valor da tag).
-# A granularidade por valor ("email", "phone", "cpf") é gerenciada via ALTER TAG
-# nos scripts SQL de setup (24_pii_tagging.sql).
-# Aqui registramos a policy genérica VARCHAR como default da tag PII.
-
-resource "snowflake_tag_masking_policy_association" "pii_default" {
-  tag_id            = "${var.database_name}.GOVERNANCE.PII"
-  masking_policy_id = "${var.database_name}.GOVERNANCE.${snowflake_masking_policy.pii_string.name}"
-}
+# ─── Tag-Based Masking ────────────────────────────────────────────────────────
+#
+# A associação tag PII → masking policy NÃO é gerenciada aqui por duas razões:
+#   1. snowflake_tag_masking_policy_association está depreciado no provider v1.x
+#      (substituto: snowflake_tag, que requer a tag gerenciada pelo Terraform).
+#   2. A tag GOVERNANCE.PII foi criada via SQL (24_pii_tagging.sql) e não está
+#      no state do Terraform — importar causaria destroy acidental.
+#
+# As associações por valor ("email", "phone", "cpf") são feitas via ALTER TAG em
+# snowflake/setup/24_pii_tagging.sql e permanecem fora do ciclo Terraform.
+#
+# Para migrar para Terraform no futuro:
+#   terraform import snowflake_tag.pii "<db>.GOVERNANCE.PII"
+#   e substituir snowflake_tag_masking_policy_association por bloco masking_policy
+#   dentro de resource "snowflake_tag" "pii".
 
 
 # ─── SSO / SAML Integration (stub — requer IdP externo configurado) ──────────
