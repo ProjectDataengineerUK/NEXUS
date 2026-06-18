@@ -4,9 +4,8 @@ Inventário de data products, tabelas, modelos e serviços disponíveis no ambie
 """
 
 import streamlit as st
-import pandas as pd
-from utils.snowflake_client import run_query
 from utils.auth import get_org_id
+from utils.snowflake_client import run_query
 
 st.set_page_config(
     page_title="Data Product Catalog · NEXUS",
@@ -267,7 +266,7 @@ for product in filtered:
         with col_l:
             st.markdown(f"**Descrição:** {product['description']}")
             st.markdown(f"**Colunas:** `{product['columns']}`")
-            st.markdown(f"**Consumidores:** " + "  ·  ".join(f"`{c}`" for c in product["consumers"]))
+            st.markdown("**Consumidores:** " + "  ·  ".join(f"`{c}`" for c in product["consumers"]))
         with col_r:
             st.caption(f"**Tipo:** {product['type']}")
             st.caption(f"**Owner:** {product['owner']}")

@@ -4,10 +4,11 @@ Console de monitoramento, teste e avaliação dos Cortex Agents.
 """
 
 import time
-import streamlit as st
+
 import pandas as pd
-from utils.snowflake_client import run_query, call_cortex_agent as _call_agent
-from utils.auth import get_org_id, get_current_user, get_current_role
+import streamlit as st
+from utils.auth import get_org_id
+from utils.snowflake_client import call_cortex_agent as _call_agent, run_query
 
 st.set_page_config(
     page_title="Agent Workbench · NEXUS",

@@ -4,12 +4,11 @@ Extrai Accounts, Opportunities e Contacts via Salesforce REST API
 e carrega em NEXUS_APP.CORE via COPY INTO / INSERT.
 """
 
-import os
-import json
-import uuid
 import logging
+import os
+from datetime import datetime, timedelta, timezone
+
 import requests
-from datetime import datetime, timezone, timedelta
 from snowflake.snowpark import Session
 
 logger = logging.getLogger(__name__)

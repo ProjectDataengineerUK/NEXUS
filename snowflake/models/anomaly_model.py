@@ -5,8 +5,8 @@ Detecta desvios em receita, volume de tickets, health score e ARR em risco.
 Escreve alertas em AI.ANOMALY_ALERTS.
 """
 
-from snowflake.snowpark import Session
 from snowflake.ml.modeling.anomaly_detection import AnomalyDetector
+from snowflake.snowpark import Session
 
 ORG_ID        = "ORG-DEMO-001"
 MODEL_VERSION = "1.0.0-anomaly"

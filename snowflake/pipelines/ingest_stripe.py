@@ -4,10 +4,11 @@ Extrai invoices e subscriptions via Stripe API
 e carrega em NEXUS_APP.CORE.TRANSACTIONS e CORE.SUBSCRIPTIONS.
 """
 
-import os
 import logging
+import os
+from datetime import datetime, timedelta, timezone
+
 import stripe
-from datetime import datetime, timezone, timedelta
 from snowflake.snowpark import Session
 
 logger = logging.getLogger(__name__)

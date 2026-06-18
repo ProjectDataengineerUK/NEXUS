@@ -4,11 +4,12 @@ Sprint 4: Cortex Analyst (NL→SQL), Executive Agent (multi-tool), perguntas sug
 """
 
 import uuid
-import streamlit as st
+
 import pandas as pd
-from utils.snowflake_client import run_query as run_sql, call_cortex_analyst as _call_analyst, call_cortex_agent as _call_agent
-from utils.auth import get_org_id, get_current_user, get_current_role
+import streamlit as st
 from utils.audit_logger import log_analyst_query
+from utils.auth import get_current_role, get_current_user, get_org_id
+from utils.snowflake_client import call_cortex_agent as _call_agent, call_cortex_analyst as _call_analyst, run_query as run_sql
 
 st.set_page_config(
     page_title="AI Chat · NEXUS",
@@ -78,8 +79,6 @@ def auto_chart(df: pd.DataFrame, question: str):
     if not num_cols:
         return
 
-    keywords_bar  = ["por segmento", "por região", "por indústria", "ranking",
-                     "top", "comparar", "comparativo"]
     keywords_line = ["tendência", "trend", "histórico", "ao longo", "por mês", "por dia"]
 
     q_lower = question.lower()

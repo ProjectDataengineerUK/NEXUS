@@ -4,10 +4,11 @@ Gera dados sintéticos realistas para demonstração e testes.
 Complementa 11_sample_data.sql com dados atualizados (timestamps recentes).
 """
 
-import uuid
-import random
 import os
-from datetime import datetime, timezone, timedelta
+import random
+import uuid
+from datetime import datetime, timedelta, timezone
+
 from snowflake.snowpark import Session
 
 ORG_ID   = os.getenv("NEXUS_ORG_ID", "ORG-DEMO-001")

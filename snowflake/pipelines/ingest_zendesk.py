@@ -4,10 +4,11 @@ Extrai tickets e comentários via Zendesk Incremental API
 e carrega em NEXUS_APP.CORE.TICKETS.
 """
 
-import os
 import logging
+import os
+from datetime import datetime, timedelta, timezone
+
 import requests
-from datetime import datetime, timezone, timedelta
 from snowflake.snowpark import Session
 
 logger = logging.getLogger(__name__)

@@ -4,10 +4,10 @@ Monitora CORE.DOC_STAGE, extrai texto com Document AI functions
 (AI_EXTRACT / AI_SUMMARIZE) e popula CORE.DOCUMENTS + AI.DOCUMENT_CHUNKS.
 """
 
-import os
 import logging
+import os
+
 from snowflake.snowpark import Session
-from snowflake.snowpark.functions import col
 
 logger = logging.getLogger(__name__)
 
@@ -51,9 +51,8 @@ def process_pending_documents(session: Session, org_id: str = ORG_ID) -> str:
     chunks_created = 0
 
     for row in staged:
-        path      = row["RELATIVE_PATH"]
-        file_url  = row["FILE_URL"]
-        doc_type  = _infer_type(path)
+        path     = row["RELATIVE_PATH"]
+        doc_type = _infer_type(path)
         doc_name  = path.split("/")[-1]
 
         # Extrai texto via Cortex Document AI

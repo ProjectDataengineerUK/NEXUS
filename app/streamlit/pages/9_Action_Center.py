@@ -3,10 +3,10 @@ NEXUS AI DataOps — Action Center
 Fila de ações geradas pela IA: execução, descarte e geração de comunicações.
 """
 
-import streamlit as st
 import pandas as pd
-from utils.snowflake_client import run_query, execute_query
-from utils.auth import get_org_id, get_current_user
+import streamlit as st
+from utils.auth import get_current_user, get_org_id
+from utils.snowflake_client import execute_query, run_query
 
 st.set_page_config(
     page_title="Action Center · NEXUS",
@@ -181,3 +181,84 @@ else:
                         st.text_area("Email gerado:", value=email_text, height=200, key=f"email_txt_{rec_id}")
                     except Exception as ex:
                         st.warning(f"Não foi possível gerar o email: {ex}")
+
+
+# ─── Fila de Aprovação ────────────────────────────────────────────────────────
+
+st.divider()
+st.subheader("🔐 Fila de Aprovação — Ações de Alto Risco")
+st.caption("Ações críticas geradas pela IA que requerem aprovação humana antes de serem executadas.")
+
+RISK_ICON = {"CRITICAL": "🔴", "HIGH": "🟠", "MEDIUM": "🟡", "LOW": "🟢"}
+
+try:
+    aq_df = run_query(f"""
+        SELECT
+            approval_id,
+            action_type,
+            risk_level,
+            requested_by,
+            status,
+            DATEDIFF('hour', created_at, expires_at) AS hours_remaining,
+            TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI') AS requested_at,
+            action_payload
+        FROM NEXUS_APP.CORE.APPROVAL_QUEUE
+        WHERE org_id = '{ORG_ID}'
+          AND status = 'pending'
+          AND expires_at > CURRENT_TIMESTAMP()
+        ORDER BY CASE risk_level WHEN 'CRITICAL' THEN 1 WHEN 'HIGH' THEN 2 WHEN 'MEDIUM' THEN 3 ELSE 4 END,
+                 created_at ASC
+        LIMIT 30
+    """)
+except Exception:
+    aq_df = pd.DataFrame()
+
+if aq_df.empty:
+    st.info("Nenhuma ação aguardando aprovação.")
+else:
+    st.markdown(f"**{len(aq_df)} ações aguardando aprovação**")
+
+    for _, aq in aq_df.iterrows():
+        appr_id    = aq["APPROVAL_ID"]
+        risk       = aq["RISK_LEVEL"]
+        action_t   = aq["ACTION_TYPE"]
+        requester  = aq["REQUESTED_BY"]
+        hours_left = int(aq["HOURS_REMAINING"] or 0)
+        requested  = aq["REQUESTED_AT"]
+        icon       = RISK_ICON.get(risk, "⚪")
+
+        with st.expander(
+            f"{icon} `{action_t}` — Risco **{risk}**  |  Solicitado por: {requester}  |  {hours_left}h restantes",
+            expanded=(risk == "CRITICAL"),
+        ):
+            col_info, col_btns = st.columns([3, 1])
+            with col_info:
+                st.caption(f"ID: `{appr_id}`  |  Solicitado em: {requested}")
+                try:
+                    import json as _json
+                    payload = aq["ACTION_PAYLOAD"]
+                    if isinstance(payload, str):
+                        payload = _json.loads(payload)
+                    if payload:
+                        st.json(payload, expanded=False)
+                except Exception:
+                    pass
+
+            with col_btns:
+                if st.button("✅ Aprovar", key=f"approve_{appr_id}", type="primary"):
+                    try:
+                        execute_query(f"CALL NEXUS_APP.CORE.APPROVE_ACTION('{appr_id}', '{USER}')")
+                        st.success("Ação aprovada.")
+                        st.rerun()
+                    except Exception as ex:
+                        st.error(f"Erro: {ex}")
+
+                reject_reason = st.text_input("Motivo (rejeição):", key=f"reason_{appr_id}", placeholder="Opcional")
+                if st.button("❌ Rejeitar", key=f"reject_{appr_id}"):
+                    try:
+                        reason_safe = reject_reason.replace("'", "''") if reject_reason else "Rejeitado manualmente"
+                        execute_query(f"CALL NEXUS_APP.CORE.REJECT_ACTION('{appr_id}', '{USER}', '{reason_safe}')")
+                        st.info("Ação rejeitada.")
+                        st.rerun()
+                    except Exception as ex:
+                        st.error(f"Erro: {ex}")

@@ -5,10 +5,8 @@ Fallback: média móvel de 7 dias quando não há dados suficientes.
 Escreve resultados em AI.REVENUE_FORECAST.
 """
 
-from snowflake.snowpark import Session
-from snowflake.snowpark.functions import col, lit, current_timestamp, dateadd, current_date
 from snowflake.ml.modeling.forecast import Forecaster
-import json
+from snowflake.snowpark import Session
 
 ORG_ID        = "ORG-DEMO-001"
 FORECAST_DAYS = 30

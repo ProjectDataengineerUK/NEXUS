@@ -4,10 +4,10 @@ Sprint 3: upload de documentos, chunking, Cortex Search e chat com documentos.
 """
 
 import uuid
+
 import streamlit as st
-import pandas as pd
-from utils.snowflake_client import run_query, get_session, cortex_search as _cortex_search, cortex_complete as _cortex_complete
 from utils.auth import get_org_id
+from utils.snowflake_client import cortex_complete as _cortex_complete, cortex_search as _cortex_search, get_session, run_query
 
 st.set_page_config(
     page_title="Document Intelligence · NEXUS",
@@ -386,7 +386,8 @@ elif tab_choice == "⬆️ Upload":
             st.write("📤 Fazendo upload para o stage…")
             try:
                 # Upload para stage interno Snowflake
-                import tempfile, os
+                import os
+                import tempfile
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
                     tmp.write(uploaded_file.getbuffer())
                     tmp_path = tmp.name

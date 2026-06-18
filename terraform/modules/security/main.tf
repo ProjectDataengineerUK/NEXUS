@@ -90,3 +90,79 @@ resource "snowflake_row_access_policy" "org_isolation" {
 
   body = "CURRENT_ROLE() IN ('${var.admin_role}', 'ACCOUNTADMIN') OR org_id = CURRENT_ACCOUNT()"
 }
+
+
+# ─── Network Policy (allowlist de IPs por ambiente) ───────────────────────────
+
+resource "snowflake_network_policy" "nexus_access" {
+  name    = "NEXUS_NETWORK_POLICY"
+  comment = "Restringe acesso ao NEXUS_APP por CIDR de escritório + CI/CD + Streamlit Cloud"
+
+  allowed_ip_list = var.allowed_ip_ranges
+
+  # Snowflake Streamlit IPs e IP do GitHub Actions são adicionados via var.allowed_ip_ranges
+  # Formato: ["10.0.0.0/8", "203.0.113.0/24"]
+}
+
+resource "snowflake_network_policy_attachment" "nexus_account" {
+  network_policy_name = snowflake_network_policy.nexus_access.name
+  set_for_account     = true
+
+  # Deixar vazio para aplicar a nível de conta; usuários específicos podem sobrescrever
+  users = []
+}
+
+
+# ─── Tag-Based Masking (aplica masking_policy via tag PII) ────────────────────
+
+# Associação de tags a masking policies (requer Snowflake Enterprise Edition)
+# Snowflake aplica automaticamente a policy em qualquer coluna com a tag correspondente.
+
+resource "snowflake_tag_masking_policy_association" "pii_email" {
+  tag_id            = "${var.database_name}.GOVERNANCE.PII"
+  masking_policy_id = "${var.database_name}.GOVERNANCE.${snowflake_masking_policy.email.name}"
+  tag_value         = "email"
+}
+
+resource "snowflake_tag_masking_policy_association" "pii_phone" {
+  tag_id            = "${var.database_name}.GOVERNANCE.PII"
+  masking_policy_id = "${var.database_name}.GOVERNANCE.${snowflake_masking_policy.phone.name}"
+  tag_value         = "phone"
+}
+
+resource "snowflake_tag_masking_policy_association" "pii_string" {
+  tag_id            = "${var.database_name}.GOVERNANCE.PII"
+  masking_policy_id = "${var.database_name}.GOVERNANCE.${snowflake_masking_policy.pii_string.name}"
+  tag_value         = "pii"
+}
+
+resource "snowflake_tag_masking_policy_association" "pii_cpf" {
+  tag_id            = "${var.database_name}.GOVERNANCE.PII"
+  masking_policy_id = "${var.database_name}.GOVERNANCE.${snowflake_masking_policy.pii_string.name}"
+  tag_value         = "cpf"
+}
+
+
+# ─── SSO / SAML Integration (stub — requer IdP externo configurado) ──────────
+
+# NOTA: Para ativar SSO real, preencha var.saml_issuer_url e var.saml_sso_url
+# com os metadados do seu IdP (Okta, Azure AD, Google Workspace, etc.)
+# e aplique via terraform apply. Deixado como stub para não bloquear deployments
+# sem IdP configurado.
+
+resource "snowflake_saml_integration" "nexus_sso" {
+  count = var.enable_sso ? 1 : 0
+
+  name    = "NEXUS_SSO"
+  enabled = true
+
+  # IdP metadata — preencher via tfvars ou Vault
+  saml2_issuer              = var.saml_issuer_url
+  saml2_sso_url             = var.saml_sso_url
+  saml2_provider            = var.saml_provider  # "OKTA" | "ADFS" | "Custom"
+  saml2_x509_cert           = var.saml_x509_cert
+  saml2_enable_sp_initiated = true
+
+  # Força re-autenticação a cada 8h de sessão
+  saml2_requested_nameid_format = "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress"
+}

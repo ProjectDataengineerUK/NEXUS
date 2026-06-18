@@ -3,10 +3,10 @@ NEXUS AI DataOps — Customer 360
 Sprint 2: ARR, usage trend, ticket count, sentiment, renewal date, churn score.
 """
 
-import streamlit as st
 import pandas as pd
-from utils.snowflake_client import run_query
+import streamlit as st
 from utils.auth import get_org_id
+from utils.snowflake_client import run_query
 
 st.set_page_config(
     page_title="Customer 360 · NEXUS",
@@ -91,7 +91,7 @@ with col_title:
 with col_badge:
     health = float(r["HEALTH_SCORE"] or 0)
     color  = health_color(health)
-    st.markdown(f"### Health Score")
+    st.markdown("### Health Score")
     st.markdown(f"**:{color}[{health:.0f} / 100]**")
 
 st.divider()

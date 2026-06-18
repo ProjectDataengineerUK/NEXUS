@@ -6,7 +6,6 @@ Execução: Task a cada 30min sobre chunks sem embedding.
 """
 
 from snowflake.snowpark import Session
-from snowflake.snowpark.functions import col, lit, current_timestamp
 
 ORG_ID        = "ORG-DEMO-001"
 MODEL_NAME    = "e5-base-v2"

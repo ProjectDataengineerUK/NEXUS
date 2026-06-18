@@ -4,12 +4,13 @@ Snowpark ML LogisticRegression treinado sobre MART.CUSTOMER_360.
 Executado como Stored Procedure; escreve resultados em AI.CHURN_SCORES.
 """
 
-from snowflake.snowpark import Session
-from snowflake.snowpark.functions import col, when, lit, current_timestamp
-from snowflake.ml.modeling.linear_model import LogisticRegression
-from snowflake.ml.modeling.preprocessing import StandardScaler
-from snowflake.ml.modeling.pipeline import Pipeline
 import json
+
+from snowflake.ml.modeling.linear_model import LogisticRegression
+from snowflake.ml.modeling.pipeline import Pipeline
+from snowflake.ml.modeling.preprocessing import StandardScaler
+from snowflake.snowpark import Session
+from snowflake.snowpark.functions import col, lit, when
 
 
 ORG_ID        = "ORG-DEMO-001"
@@ -167,7 +168,7 @@ def train_and_score(session: Session) -> str:
     return f"OK: {inserted} clientes pontuados — modelo {MODEL_VERSION}"
 
 
-from snowflake.models.recommendation_model import generate_recommendations  # noqa: E402
+from snowflake.models.recommendation_model import generate_recommendations  # noqa: E402, I001
 
 
 # ── Entry point como Stored Procedure ────────────────────────────────────────

@@ -4,9 +4,8 @@ ARR, MRR, churn trends, NPS, top opportunities, top risks.
 """
 
 import streamlit as st
-import pandas as pd
-from utils.snowflake_client import run_query
 from utils.auth import get_org_id
+from utils.snowflake_client import run_query
 
 st.set_page_config(page_title="Executive Command · NEXUS", page_icon="📊", layout="wide")
 
