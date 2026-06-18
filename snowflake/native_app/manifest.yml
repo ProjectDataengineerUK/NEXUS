@@ -10,10 +10,6 @@ artifacts:
   readme: readme.md
   default_streamlit: CORE.NEXUS_UI
 
-references:
-  - name: customer_table
-    label: "Tabela de Clientes"
-    description: "Tabela principal de clientes do consumer para integração com dados proprietários"
-    object_type: TABLE
-    multi_valued: false
-    register_callback: CORE.REGISTER_REFERENCE
+configuration:
+  log_level: INFO
+  trace_level: OFF
