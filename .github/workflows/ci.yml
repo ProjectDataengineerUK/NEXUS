@@ -353,6 +353,8 @@ jobs:
                        "data_quality_monitoring",
                        "001422",
                        "ambiguous column name",  # 002028: ADD COLUMN IF NOT EXISTS when col already exists
+                       "100357",                 # Python interpreter error in ML Registry — Enterprise feature
+                       "snowflake.ml",           # ML Registry not available on trial
                        )
 
           for script in scripts:

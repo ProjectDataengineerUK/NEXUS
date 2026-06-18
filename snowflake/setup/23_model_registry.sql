@@ -100,7 +100,7 @@ MODELS = [
 ]
 
 def register_models(session: Session):
-    registry = Registry(session=session, schema_name="NEXUS_APP.ML")
+    registry = Registry(session=session, database_name="NEXUS_APP", schema_name="ML")
     registered = []
     errors = []
 
