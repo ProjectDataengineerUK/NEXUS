@@ -240,7 +240,8 @@ jobs:
                        "application package",       # Native App pkg not available on trial
                        "grant/revoke order",        # stage READ/WRITE order via role inheritance
                        "003040",                     # explicit code for grant/revoke order error
-                       "002715"                      # Dynamic Table lag constraint — caught by code, not config
+                       "002715",                     # Dynamic Table lag constraint — caught by code, not config
+                       "data_quality_monitoring"     # SNOWFLAKE.LOCAL.DATA_QUALITY_MONITORING_RESULTS — Enterprise only
                        )
 
           for script in scripts:

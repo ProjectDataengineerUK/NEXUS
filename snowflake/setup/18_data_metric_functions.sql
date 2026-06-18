@@ -94,7 +94,65 @@ ALTER TABLE CORE.TICKETS ADD DATA METRIC FUNCTION
     GOVERNANCE.DMF_FRESHNESS_HOURS ON (created_at);
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- View de monitoramento de qualidade (consolida resultados de todas as DMFs)
+-- View auxiliar: DMFs registradas por tabela (configuração, não resultados)
+-- INFORMATION_SCHEMA.DATA_METRIC_FUNCTION_REFERENCES retorna configuração;
+-- resultados de medição ficam em SNOWFLAKE.LOCAL.DATA_QUALITY_MONITORING_RESULTS
+-- (Enterprise Edition). Esta view de configuração sempre funciona.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE VIEW GOVERNANCE.V_DMF_REGISTRATIONS AS
+SELECT
+    ref_entity_name                             AS table_fqn,
+    SPLIT_PART(ref_entity_name, '.', 2)        AS table_schema,
+    SPLIT_PART(ref_entity_name, '.', 3)        AS table_name,
+    metric_name,
+    ref_column_names                            AS column_names,
+    schedule,
+    schedule_status
+FROM TABLE(
+    INFORMATION_SCHEMA.DATA_METRIC_FUNCTION_REFERENCES(
+        REF_ENTITY_DOMAIN => 'TABLE',
+        REF_ENTITY_NAME   => 'NEXUS_APP.CORE.CUSTOMERS'
+    )
+)
+UNION ALL
+SELECT
+    ref_entity_name,
+    SPLIT_PART(ref_entity_name, '.', 2),
+    SPLIT_PART(ref_entity_name, '.', 3),
+    metric_name,
+    ref_column_names,
+    schedule,
+    schedule_status
+FROM TABLE(
+    INFORMATION_SCHEMA.DATA_METRIC_FUNCTION_REFERENCES(
+        REF_ENTITY_DOMAIN => 'TABLE',
+        REF_ENTITY_NAME   => 'NEXUS_APP.CORE.TRANSACTIONS'
+    )
+)
+UNION ALL
+SELECT
+    ref_entity_name,
+    SPLIT_PART(ref_entity_name, '.', 2),
+    SPLIT_PART(ref_entity_name, '.', 3),
+    metric_name,
+    ref_column_names,
+    schedule,
+    schedule_status
+FROM TABLE(
+    INFORMATION_SCHEMA.DATA_METRIC_FUNCTION_REFERENCES(
+        REF_ENTITY_DOMAIN => 'TABLE',
+        REF_ENTITY_NAME   => 'NEXUS_APP.CORE.TICKETS'
+    )
+);
+
+GRANT SELECT ON VIEW GOVERNANCE.V_DMF_REGISTRATIONS TO ROLE NEXUS_ANALYST;
+GRANT SELECT ON VIEW GOVERNANCE.V_DMF_REGISTRATIONS TO ROLE NEXUS_ADMIN;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- View de resultados de medição (Enterprise Edition)
+-- SNOWFLAKE.LOCAL.DATA_QUALITY_MONITORING_RESULTS persiste o histórico de
+-- execuções das DMFs. Criação pode falhar em trial/Standard — é ignorado pelo CI.
 -- ─────────────────────────────────────────────────────────────────────────────
 
 CREATE OR REPLACE VIEW GOVERNANCE.V_DATA_QUALITY_DASHBOARD AS
@@ -106,69 +164,20 @@ SELECT
     column_name,
     value,
     CASE
-        WHEN metric_name = 'DMF_NULL_COUNT'       AND value > 0   THEN 'WARN'
-        WHEN metric_name = 'DMF_DUPLICATE_COUNT'  AND value > 0   THEN 'FAIL'
+        WHEN metric_name = 'DMF_NULL_COUNT'      AND value > 0   THEN 'WARN'
+        WHEN metric_name = 'DMF_DUPLICATE_COUNT' AND value > 0   THEN 'FAIL'
         WHEN metric_name = 'DMF_FRESHNESS_HOURS'
-             AND DATEDIFF('hour','1970-01-01'::TIMESTAMP_TZ,measurement_time) - value > 48 THEN 'FAIL'
+             AND DATEDIFF('hour', '1970-01-01'::TIMESTAMP_TZ, measurement_time) - value > 48
+             THEN 'FAIL'
         WHEN metric_name = 'DMF_FRESHNESS_HOURS'
-             AND DATEDIFF('hour','1970-01-01'::TIMESTAMP_TZ,measurement_time) - value > 24 THEN 'WARN'
+             AND DATEDIFF('hour', '1970-01-01'::TIMESTAMP_TZ, measurement_time) - value > 24
+             THEN 'WARN'
         ELSE 'OK'
-    END                                                             AS quality_status
-FROM TABLE(
-    INFORMATION_SCHEMA.DATA_METRIC_FUNCTION_REFERENCES(
-        REF_ENTITY_DOMAIN => 'TABLE',
-        REF_ENTITY_NAME   => 'NEXUS_APP.CORE.CUSTOMERS'
-    )
-)
-
-UNION ALL
-
-SELECT
-    measurement_time,
-    table_schema,
-    table_name,
-    metric_name,
-    column_name,
-    value,
-    CASE
-        WHEN metric_name = 'DMF_NULL_COUNT'       AND value > 0   THEN 'WARN'
-        WHEN metric_name = 'DMF_DUPLICATE_COUNT'  AND value > 0   THEN 'FAIL'
-        WHEN metric_name = 'DMF_FRESHNESS_HOURS'
-             AND DATEDIFF('hour','1970-01-01'::TIMESTAMP_TZ,measurement_time) - value > 48 THEN 'FAIL'
-        WHEN metric_name = 'DMF_FRESHNESS_HOURS'
-             AND DATEDIFF('hour','1970-01-01'::TIMESTAMP_TZ,measurement_time) - value > 24 THEN 'WARN'
-        ELSE 'OK'
-    END
-FROM TABLE(
-    INFORMATION_SCHEMA.DATA_METRIC_FUNCTION_REFERENCES(
-        REF_ENTITY_DOMAIN => 'TABLE',
-        REF_ENTITY_NAME   => 'NEXUS_APP.CORE.TRANSACTIONS'
-    )
-)
-
-UNION ALL
-
-SELECT
-    measurement_time,
-    table_schema,
-    table_name,
-    metric_name,
-    column_name,
-    value,
-    CASE
-        WHEN metric_name = 'DMF_NULL_COUNT'       AND value > 0   THEN 'WARN'
-        WHEN metric_name = 'DMF_FRESHNESS_HOURS'
-             AND DATEDIFF('hour','1970-01-01'::TIMESTAMP_TZ,measurement_time) - value > 48 THEN 'FAIL'
-        WHEN metric_name = 'DMF_FRESHNESS_HOURS'
-             AND DATEDIFF('hour','1970-01-01'::TIMESTAMP_TZ,measurement_time) - value > 24 THEN 'WARN'
-        ELSE 'OK'
-    END
-FROM TABLE(
-    INFORMATION_SCHEMA.DATA_METRIC_FUNCTION_REFERENCES(
-        REF_ENTITY_DOMAIN => 'TABLE',
-        REF_ENTITY_NAME   => 'NEXUS_APP.CORE.TICKETS'
-    )
-);
+    END AS quality_status
+FROM SNOWFLAKE.LOCAL.DATA_QUALITY_MONITORING_RESULTS
+WHERE table_catalog = 'NEXUS_APP'
+  AND table_schema  = 'CORE'
+  AND table_name    IN ('CUSTOMERS', 'TRANSACTIONS', 'TICKETS');
 
 GRANT SELECT ON VIEW GOVERNANCE.V_DATA_QUALITY_DASHBOARD TO ROLE NEXUS_ANALYST;
 GRANT SELECT ON VIEW GOVERNANCE.V_DATA_QUALITY_DASHBOARD TO ROLE NEXUS_ADMIN;
