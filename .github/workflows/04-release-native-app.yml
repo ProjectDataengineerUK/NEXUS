@@ -154,7 +154,32 @@ jobs:
           VERSION_SLUG  = os.environ["APP_VERSION_SLUG"]
           STAGE         = f"@NEXUS_AI_DATAOPS_PKG.PUBLIC.APP_STAGE/{VERSION_SLUG}"
 
-          # Registrar nova versão (API para release channels habilitados)
+          def silent(fn, *args, **kwargs):
+              try: fn(*args, **kwargs)
+              except Exception as e: print(f"  [skip] {e}")
+
+          # Idempotência: limpar versão anterior do canal e re-registrar
+          # 1. Remover todas as versões do canal DEFAULT para abrir espaço
+          rows = cs.execute(
+              "SHOW VERSIONS IN APPLICATION PACKAGE NEXUS_AI_DATAOPS_PKG"
+          ).fetchall()
+          col = [d[0].upper() for d in cs.description]
+          for row in rows:
+              vname = row[col.index("VERSION")]
+              print(f"  Removing {vname} from DEFAULT channel...")
+              silent(cs.execute, f"""
+                  ALTER APPLICATION PACKAGE NEXUS_AI_DATAOPS_PKG
+                      MODIFY RELEASE CHANNEL DEFAULT
+                      REMOVE VERSION {vname}
+              """)
+
+          # 2. Dropar o slug atual se já existir (re-registro limpo)
+          silent(cs.execute, f"""
+              ALTER APPLICATION PACKAGE NEXUS_AI_DATAOPS_PKG
+                  DROP VERSION {VERSION_SLUG}
+          """)
+
+          # 3. Registrar a versão nova
           cs.execute(f"""
               ALTER APPLICATION PACKAGE NEXUS_AI_DATAOPS_PKG
                   REGISTER VERSION {VERSION_SLUG}
@@ -162,7 +187,7 @@ jobs:
                   LABEL = '{VERSION_LABEL}'
           """)
 
-          # Adicionar ao release channel DEFAULT (torna a versão disponível para instalar)
+          # 4. Adicionar ao canal DEFAULT
           cs.execute(f"""
               ALTER APPLICATION PACKAGE NEXUS_AI_DATAOPS_PKG
                   MODIFY RELEASE CHANNEL DEFAULT
