@@ -1,20 +1,13 @@
 name: "02 · Deploy — Artefatos Snowflake"
 
-# Roda após o terraform apply, em push direto a main com artefatos alterados,
+# Dispara SOMENTE quando o CI (lint + testes) conclui com sucesso em main,
 # ou manualmente via workflow_dispatch.
+# Isso garante que deploy nunca roda antes do CI passar.
 on:
   workflow_run:
-    workflows: ["01 · Terraform — Infraestrutura Snowflake"]
+    workflows: ["CI · Lint + Tests"]
     types: [completed]
     branches: [main]
-  push:
-    branches: [main]
-    paths:
-      - "snowflake/setup/**"
-      - "snowflake/cortex/**"
-      - "app/streamlit/**"
-      - "scripts/bootstrap.sh"
-      - ".github/workflows/02-deploy-snowflake.yml"
   workflow_dispatch:
     inputs:
       environment:
@@ -26,7 +19,7 @@ on:
       skip_sql:
         description: "Pular scripts SQL (apenas subir arquivos)"
         required: false
-        default: "false"
+        default: false
         type: boolean
 
 jobs:
@@ -35,8 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     if: |
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'dev') ||
-      github.event_name == 'push'
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'dev')
     environment: dev
 
     env:
@@ -49,6 +41,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Setup Python
         uses: actions/setup-python@v5

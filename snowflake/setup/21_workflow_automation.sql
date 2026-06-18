@@ -95,10 +95,10 @@ BEGIN
     v_msg   := 'Top at-risk accounts:\n';
     v_title := '⚠️ ' || v_count::VARCHAR || ' High-Risk Customers Detected';
 
-    FOR row IN cur DO
-        v_msg := v_msg || '• ' || row.customer_name
-                       || ' (Health: ' || row.health_score::VARCHAR
-                       || ' | ARR: $' || TO_CHAR(row.arr_usd, '999,999,999') || ')\n';
+    FOR cur_row IN cur DO
+        v_msg := v_msg || '• ' || cur_row.customer_name
+                       || ' (Health: ' || cur_row.health_score::VARCHAR
+                       || ' | ARR: $' || TO_CHAR(cur_row.arr_usd, '999,999,999') || ')\n';
     END FOR;
 
     CALL CORE.SEND_SLACK_ALERT(
