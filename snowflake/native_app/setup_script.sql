@@ -83,6 +83,10 @@ CREATE TABLE IF NOT EXISTS CORE.TICKETS (
     PRIMARY KEY (ticket_id)
 );
 
+-- Migrations: garante colunas de sentimento adicionadas após versões anteriores
+ALTER TABLE CORE.TICKETS ADD COLUMN IF NOT EXISTS sentiment_score  DECIMAL(4,3);
+ALTER TABLE CORE.TICKETS ADD COLUMN IF NOT EXISTS sentiment_label  VARCHAR(20);
+
 CREATE TABLE IF NOT EXISTS CORE.PRODUCT_EVENTS (
     event_id        VARCHAR(36)   NOT NULL DEFAULT UUID_STRING(),
     org_id          VARCHAR(36)   NOT NULL,

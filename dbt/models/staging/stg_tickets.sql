@@ -28,15 +28,15 @@ renamed as (
 
         -- sentimento calculado via Cortex AI (escala -1..1)
         snowflake.cortex.sentiment(
-            coalesce(description, subject, '')
+            coalesce(subject, '')
         )                                                     as sentiment_score,
         case
             when snowflake.cortex.sentiment(
-                     coalesce(description, subject, '')
-                 ) >= 0.3  then 'positive'
+                     coalesce(subject, '')
+                 ) >  0.2  then 'positive'
             when snowflake.cortex.sentiment(
-                     coalesce(description, subject, '')
-                 ) <= -0.3 then 'negative'
+                     coalesce(subject, '')
+                 ) < -0.2  then 'negative'
             else                'neutral'
         end                                                   as sentiment_label,
 

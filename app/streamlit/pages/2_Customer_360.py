@@ -226,7 +226,7 @@ with col_tickets:
             subject,
             status,
             priority,
-            sentiment_label,
+            COALESCE(sentiment_label, 'neutral') AS sentiment_label,
             sla_breach,
             created_at
         FROM CORE.TICKETS
