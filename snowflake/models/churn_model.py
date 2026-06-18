@@ -81,7 +81,7 @@ def train_and_score(session: Session) -> str:
     prediz probabilidade para todos os clientes ativos e escreve em AI.CHURN_SCORES.
     """
     # ── Carrega dataset ────────────────────────────────────────────────────────
-    df = session.table("NEXUS_APP.MART.CUSTOMER_360")
+    df = session.table("MART.CUSTOMER_360")
 
     # Label: churned = 1, outros = 0
     df = df.with_column(
@@ -143,7 +143,7 @@ def train_and_score(session: Session) -> str:
         org_id       = r["ORG_ID"]
 
         session.sql(f"""
-            MERGE INTO NEXUS_APP.AI.CHURN_SCORES tgt
+            MERGE INTO AI.CHURN_SCORES tgt
             USING (
                 SELECT '{customer_id}' AS customer_id, '{org_id}' AS org_id
             ) src ON (tgt.customer_id = src.customer_id AND tgt.org_id = src.org_id)
@@ -167,93 +167,7 @@ def train_and_score(session: Session) -> str:
     return f"OK: {inserted} clientes pontuados — modelo {MODEL_VERSION}"
 
 
-def generate_recommendations(session: Session) -> str:
-    """
-    Gera recomendações com Cortex Complete para clientes HIGH/MEDIUM risk.
-    Insere em AI.RECOMMENDATIONS se não existir recomendação ativa recente.
-    """
-    rows = session.sql(f"""
-        SELECT
-            cs.customer_id,
-            cs.org_id,
-            c.name            AS customer_name,
-            cs.risk_level,
-            cs.churn_probability,
-            cs.recommended_action,
-            cs.top_drivers,
-            cs.expected_revenue_at_risk,
-            c360.health_score,
-            c360.nps_score,
-            c360.arr,
-            c360.segment,
-            c360.nearest_renewal_date
-        FROM NEXUS_APP.AI.CHURN_SCORES cs
-        JOIN NEXUS_APP.CORE.CUSTOMERS c
-            ON cs.customer_id = c.customer_id AND cs.org_id = c.org_id
-        JOIN NEXUS_APP.MART.CUSTOMER_360 c360
-            ON cs.customer_id = c360.customer_id
-        LEFT JOIN NEXUS_APP.AI.RECOMMENDATIONS r
-            ON cs.customer_id = r.entity_id
-            AND r.status = 'pending'
-            AND r.is_active = TRUE
-            AND r.recommendation_type = 'churn_prevention'
-            AND r.created_at >= DATEADD('day', -7, CURRENT_TIMESTAMP())
-        WHERE cs.org_id = '{ORG_ID}'
-          AND cs.risk_level IN ('HIGH', 'MEDIUM')
-          AND r.recommendation_id IS NULL
-        ORDER BY cs.expected_revenue_at_risk DESC
-        LIMIT 20
-    """).collect()
-
-    if not rows:
-        return "OK: sem novos clientes para gerar recomendações"
-
-    generated = 0
-    for r in rows:
-        drivers_raw = r["TOP_DRIVERS"]
-        try:
-            drivers_str = ", ".join(json.loads(drivers_raw) if isinstance(drivers_raw, str) else drivers_raw)
-        except Exception:
-            drivers_str = str(drivers_raw)
-
-        prompt = (
-            f"Você é um Customer Success Manager sênior. "
-            f"Gere UMA recomendação de ação clara e objetiva (máximo 2 frases) para prevenir o churn "
-            f"de {r['CUSTOMER_NAME']} ({r['SEGMENT']}). "
-            f"ARR: US$ {r['ARR']:,.0f}. "
-            f"Risk: {r['RISK_LEVEL']} ({r['CHURN_PROBABILITY']:.0%}). "
-            f"Drivers: {drivers_str}. "
-            f"Health Score: {r['HEALTH_SCORE']}. "
-            f"NPS: {r['NPS_SCORE']}. "
-            f"Renovação: {r['NEAREST_RENEWAL_DATE']}. "
-            f"Responda em português, sem bullet points, focado em ação imediata."
-        ).replace("'", "''")
-
-        rec_text_row = session.sql(
-            f"SELECT SNOWFLAKE.CORTEX.COMPLETE('mistral-large2', '{prompt}') AS rec"
-        ).collect()
-        rec_text = (rec_text_row[0]["REC"] or r["RECOMMENDED_ACTION"]).strip()
-
-        priority   = "HIGH" if r["RISK_LEVEL"] == "HIGH" else "MEDIUM"
-        impact_usd = float(r["EXPECTED_REVENUE_AT_RISK"] or 0)
-        owner      = "customer_success"
-        rec_esc    = rec_text.replace("'", "''")
-        cid        = r["CUSTOMER_ID"]
-        oid        = r["ORG_ID"]
-
-        session.sql(f"""
-            INSERT INTO NEXUS_APP.AI.RECOMMENDATIONS
-                (org_id, entity_id, entity_type, recommendation_type,
-                 priority, recommendation_text, expected_impact_usd,
-                 confidence_score, owner_role, status)
-            VALUES
-                ('{oid}', '{cid}', 'customer', 'churn_prevention',
-                 '{priority}', '{rec_esc}', {impact_usd:.2f},
-                 {r['CHURN_PROBABILITY']:.4f}, '{owner}', 'pending')
-        """).collect()
-        generated += 1
-
-    return f"OK: {generated} recomendações geradas"
+from snowflake.models.recommendation_model import generate_recommendations  # noqa: E402
 
 
 # ── Entry point como Stored Procedure ────────────────────────────────────────
