@@ -407,18 +407,24 @@ jobs:
         run: |
           python3 - <<'EOF'
           import os, pathlib
-          cfg = pathlib.Path.home() / ".snowflake" / "config.toml"
+          acc  = os.environ["SNOWFLAKE_ACCOUNT"]
+          user = os.environ["SNOWFLAKE_USER"]
+          pwd  = os.environ["SNOWFLAKE_PASSWORD"]
+          cfg  = pathlib.Path.home() / ".snowflake" / "config.toml"
           cfg.parent.mkdir(exist_ok=True)
-          cfg.write_text(f"""
-          default_connection_name = "dev"
-
-          [connections.dev]
-          account   = "{os.environ['SNOWFLAKE_ACCOUNT']}"
-          user      = "{os.environ['SNOWFLAKE_USER']}"
-          password  = "{os.environ['SNOWFLAKE_PASSWORD']}"
-          role      = "ACCOUNTADMIN"
-          warehouse = "NEXUS_COMPUTE_WH"
-          """)
+          lines = [
+              'default_connection_name = "dev"',
+              "",
+              "[connections.dev]",
+              f'account   = "{acc}"',
+              f'user      = "{user}"',
+              f'password  = "{pwd}"',
+              'role      = "ACCOUNTADMIN"',
+              'warehouse = "NEXUS_COMPUTE_WH"',
+          ]
+          cfg.write_text("\n".join(lines) + "\n")
+          cfg.chmod(0o600)
+          print("Snowflake CLI configured.")
           EOF
 
       - name: Deploy Native App
