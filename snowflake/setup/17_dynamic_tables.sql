@@ -80,12 +80,12 @@ WITH transactions AS (
     SELECT
         org_id,
         transaction_date                                                          AS revenue_date,
-        SUM(CASE WHEN transaction_type = 'new_contract' THEN amount_usd/12 ELSE 0 END) AS new_mrr,
-        SUM(CASE WHEN transaction_type = 'upsell'       THEN amount_usd/12 ELSE 0 END) AS expansion_mrr,
-        SUM(CASE WHEN transaction_type = 'downgrade'    THEN amount_usd/12 ELSE 0 END) AS contraction_mrr,
-        SUM(CASE WHEN transaction_type = 'churn'        THEN amount_usd/12 ELSE 0 END) AS churn_mrr,
-        SUM(CASE WHEN transaction_type = 'renewal'      THEN amount_usd/12 ELSE 0 END) AS renewal_mrr,
-        SUM(amount_usd)                                                            AS total_revenue_booked,
+        SUM(CASE WHEN transaction_type = 'new_contract' THEN amount/12 ELSE 0 END) AS new_mrr,
+        SUM(CASE WHEN transaction_type = 'upsell'       THEN amount/12 ELSE 0 END) AS expansion_mrr,
+        SUM(CASE WHEN transaction_type = 'downgrade'    THEN amount/12 ELSE 0 END) AS contraction_mrr,
+        SUM(CASE WHEN transaction_type = 'churn'        THEN amount/12 ELSE 0 END) AS churn_mrr,
+        SUM(CASE WHEN transaction_type = 'renewal'      THEN amount/12 ELSE 0 END) AS renewal_mrr,
+        SUM(amount)                                                            AS total_revenue_booked,
         COUNT(DISTINCT transaction_id)                                             AS transaction_count,
         COUNT(DISTINCT customer_id)                                                AS customers_transacted
     FROM CORE.TRANSACTIONS
