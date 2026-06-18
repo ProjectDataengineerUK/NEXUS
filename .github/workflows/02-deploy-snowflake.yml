@@ -241,7 +241,8 @@ jobs:
                        "grant/revoke order",        # stage READ/WRITE order via role inheritance
                        "003040",                     # explicit code for grant/revoke order error
                        "002715",                     # Dynamic Table lag constraint — caught by code, not config
-                       "data_quality_monitoring"     # SNOWFLAKE.LOCAL.DATA_QUALITY_MONITORING_RESULTS — Enterprise only
+                       "data_quality_monitoring",    # SNOWFLAKE.LOCAL.DATA_QUALITY_MONITORING_RESULTS — Enterprise only
+                       "001422",                     # WEBHOOK_SECRET placeholder invalid — real secret set in prod
                        )
 
           for script in scripts:
