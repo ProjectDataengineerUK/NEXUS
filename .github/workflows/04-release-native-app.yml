@@ -78,29 +78,54 @@ jobs:
                   DIRECTORY = (ENABLE = TRUE)
           """)
 
-          # Stage base para o pacote (dentro do Application Package, não no app database)
           VERSION = os.environ["APP_VERSION_SLUG"]
           STAGE   = f"@NEXUS_AI_DATAOPS_PKG.PUBLIC.APP_STAGE/{VERSION}"
 
+          def collect(src_glob, src_base, stage_prefix):
+              """Yield (local_path, stage_dest) pairs preserving relative structure."""
+              for f in sorted(glob.glob(src_glob, recursive=True)):
+                  if "__pycache__" in f:
+                      continue
+                  rel     = os.path.relpath(f, src_base)
+                  rel_dir = os.path.dirname(rel)
+                  dest    = f"{STAGE}/{stage_prefix}/{rel_dir}/" if rel_dir else f"{STAGE}/{stage_prefix}/"
+                  yield f, dest
+
           files = [
-              ("snowflake/native_app/manifest.yml",    f"{STAGE}/"),
+              # ── Native App core ────────────────────────────────────────────────
+              ("snowflake/native_app/manifest.yml",     f"{STAGE}/"),
               ("snowflake/native_app/setup_script.sql", f"{STAGE}/"),
               ("snowflake/native_app/readme.md",        f"{STAGE}/"),
-              ("snowflake/cortex/semantic_models/nexus_revenue.yaml",
-               f"{STAGE}/cortex/semantic_models/"),
           ]
 
-          # Páginas Streamlit — evitar path duplo quando arquivo está na raiz
-          for f in glob.glob("app/streamlit/**/*.py", recursive=True):
-              rel     = os.path.relpath(f, "app/streamlit")
-              rel_dir = os.path.dirname(rel)
-              dest    = f"{STAGE}/streamlit/{rel_dir}/" if rel_dir else f"{STAGE}/streamlit/"
-              files.append((f, dest))
+          # ── Streamlit (pages + utils + config) ────────────────────────────────
+          for pair in collect("app/streamlit/**/*.*", "app/streamlit", "streamlit"):
+              files.append(pair)
 
-          for local_path, stage_path in files:
-              print(f"  PUT {local_path} → {stage_path}")
+          # ── Cortex: semantic models ────────────────────────────────────────────
+          for pair in collect("snowflake/cortex/semantic_models/*.yaml",
+                              "snowflake/cortex", "cortex"):
+              files.append(pair)
+
+          # ── Cortex: agents ─────────────────────────────────────────────────────
+          for pair in collect("snowflake/cortex/agents/*.yaml",
+                              "snowflake/cortex", "cortex"):
+              files.append(pair)
+
+          # ── Cortex: stored procedures (SQL) ───────────────────────────────────
+          for pair in collect("snowflake/cortex/stored_procedures/*.sql",
+                              "snowflake/cortex", "cortex"):
+              files.append(pair)
+
+          # ── Snowpark ML models ─────────────────────────────────────────────────
+          for pair in collect("snowflake/models/*.py", "snowflake", "models"):
+              files.append(pair)
+
+          total = len(files)
+          for i, (local_path, stage_path) in enumerate(files, 1):
+              print(f"  [{i}/{total}] PUT {local_path} → {stage_path}")
               cs.execute(f"""
-                  PUT file://{local_path} {stage_path}
+                  PUT file://{os.path.abspath(local_path)} {stage_path}
                   OVERWRITE = TRUE AUTO_COMPRESS = FALSE
               """)
 
