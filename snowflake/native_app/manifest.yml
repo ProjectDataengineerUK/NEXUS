@@ -11,10 +11,8 @@ artifacts:
   default_streamlit: CORE.NEXUS_UI
 
 privileges:
-  - name: EXECUTE TASK
-    description: "Executar tasks de audit log, data quality e scoring agendados"
-  - name: CREATE WAREHOUSE
-    description: "Criar warehouses NEXUS_UI_WH, NEXUS_COMPUTE_WH e NEXUS_ML_WH"
+  - EXECUTE TASK
+  - CREATE WAREHOUSE
 
 references:
   - name: CUSTOMER_TABLE
