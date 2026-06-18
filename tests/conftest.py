@@ -30,11 +30,12 @@ def _stub(name: str, **attrs):
 
 _stub("snowflake.ml")
 _stub("snowflake.ml.modeling")
-_stub("snowflake.ml.modeling.linear_model", LogisticRegression=MagicMock)
-_stub("snowflake.ml.modeling.pipeline",     Pipeline=MagicMock)
+_stub("snowflake.ml.modeling.linear_model",  LogisticRegression=MagicMock)
+_stub("snowflake.ml.modeling.pipeline",      Pipeline=MagicMock)
 _stub("snowflake.ml.modeling.preprocessing", StandardScaler=MagicMock)
-_stub("snowflake.snowpark",                 Session=MagicMock)
-_stub("snowflake.snowpark.functions",       col=MagicMock(), lit=MagicMock(), when=MagicMock())
+_stub("snowflake.ml.modeling.forecast",      Forecaster=MagicMock)
+_stub("snowflake.snowpark",                  Session=MagicMock)
+_stub("snowflake.snowpark.functions",        col=MagicMock(), lit=MagicMock(), when=MagicMock())
 
 # ────────────────────────────────────────────────────────────────────────────
 
