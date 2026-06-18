@@ -108,7 +108,7 @@ BEGIN
                 FROM NEXUS_APP.AI.RECOMMENDATIONS
                 WHERE org_id = o.org_id
                   AND status = 'accepted'
-                  AND updated_at::DATE = :v_date
+                  AND acted_at::DATE = :v_date
             ), 0)                                              AS actions_executed,
 
             -- Features usadas hoje
@@ -121,11 +121,10 @@ BEGIN
                      THEN 'cortex_agents' ELSE NULL END
             ))                                                 AS features_used
 
-        FROM NEXUS_APP.CORE.ORGANIZATIONS o
-        LEFT JOIN NEXUS_APP.CORE.AUDIT_LOG al
+        FROM (SELECT DISTINCT org_id FROM NEXUS_APP.CORE.CUSTOMERS) o
+        LEFT JOIN NEXUS_APP.AUDIT.ACCESS_LOG al
                ON al.org_id = o.org_id
               AND al.created_at >= DATEADD('day', -1, CURRENT_TIMESTAMP())
-        WHERE o.is_active = TRUE
         GROUP BY o.org_id
     ) src
     ON tgt.org_id = src.org_id AND tgt.snapshot_date = :v_date
@@ -177,8 +176,6 @@ trend AS (
 )
 SELECT
     l.org_id,
-    o.org_name,
-    o.plan_tier,
     l.snapshot_date                                         AS last_active,
     l.streamlit_dau,
     l.cortex_calls,
@@ -197,7 +194,6 @@ SELECT
     END                                                    AS engagement_tier,
     ARRAY_SIZE(l.features_used)                            AS features_adopted
 FROM latest l
-JOIN NEXUS_APP.CORE.ORGANIZATIONS o ON l.org_id = o.org_id
 LEFT JOIN trend t ON l.org_id = t.org_id
 WHERE l.rn = 1
 ORDER BY l.cortex_calls DESC NULLS LAST;

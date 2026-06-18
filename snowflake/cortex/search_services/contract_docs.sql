@@ -33,7 +33,6 @@ JOIN CORE.DOCUMENTS d
 LEFT JOIN CORE.CUSTOMERS c
      ON d.entity_id = c.customer_id AND d.org_id = c.org_id
 WHERE d.document_type IN ('contract', 'sla', 'amendment', 'addendum')
-  AND d.is_active    = TRUE
   AND ch.chunk_text  IS NOT NULL;
 
 
