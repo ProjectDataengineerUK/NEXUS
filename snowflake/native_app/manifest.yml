@@ -10,10 +10,6 @@ artifacts:
   readme: readme.md
   default_streamlit: CORE.NEXUS_UI
 
-privileges:
-  - name: EXECUTE TASK
-  - name: CREATE WAREHOUSE
-
 references:
   - name: CUSTOMER_TABLE
     label: "Tabela de Clientes"
