@@ -12,7 +12,6 @@ from snowflake.ml.modeling.preprocessing import StandardScaler
 from snowflake.snowpark import Session
 from snowflake.snowpark.functions import col, lit, when
 
-
 ORG_ID        = "ORG-DEMO-001"
 MODEL_VERSION = "1.0.0-lr"
 

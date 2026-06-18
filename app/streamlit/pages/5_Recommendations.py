@@ -8,7 +8,8 @@ import json
 import pandas as pd
 import streamlit as st
 from utils.auth import get_org_id
-from utils.snowflake_client import get_session, run_query as run_sql
+from utils.snowflake_client import get_session
+from utils.snowflake_client import run_query as run_sql
 
 st.set_page_config(
     page_title="Action Center · NEXUS",

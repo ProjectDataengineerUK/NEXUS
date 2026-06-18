@@ -8,7 +8,8 @@ import time
 import pandas as pd
 import streamlit as st
 from utils.auth import get_org_id
-from utils.snowflake_client import call_cortex_agent as _call_agent, run_query
+from utils.snowflake_client import call_cortex_agent as _call_agent
+from utils.snowflake_client import run_query
 
 st.set_page_config(
     page_title="Agent Workbench · NEXUS",

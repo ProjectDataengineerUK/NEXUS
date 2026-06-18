@@ -7,7 +7,9 @@ import uuid
 
 import streamlit as st
 from utils.auth import get_org_id
-from utils.snowflake_client import cortex_complete as _cortex_complete, cortex_search as _cortex_search, get_session, run_query
+from utils.snowflake_client import cortex_complete as _cortex_complete
+from utils.snowflake_client import cortex_search as _cortex_search
+from utils.snowflake_client import get_session, run_query
 
 st.set_page_config(
     page_title="Document Intelligence · NEXUS",
