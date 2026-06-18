@@ -112,9 +112,9 @@ FROM transactions;
 -- ─────────────────────────────────────────────────────────────────────────────
 
 CREATE OR REPLACE DYNAMIC TABLE AI.CHURN_FEATURES_RT
-    TARGET_LAG     = '30 minutes'
+    TARGET_LAG     = '1 hour'
     WAREHOUSE      = NEXUS_ML_WH
-    COMMENT        = 'Feature store de churn para inferência Snowpark ML (30min lag)'
+    COMMENT        = 'Feature store de churn para inferência Snowpark ML (1h lag — alinhado com CUSTOMER_360)'
 AS
 WITH base AS (
     SELECT
