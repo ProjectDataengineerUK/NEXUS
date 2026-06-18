@@ -1,11 +1,34 @@
-# Copie este arquivo para terraform.tfvars e preencha seus valores.
-# NUNCA commite terraform.tfvars no git — ele contém credenciais.
-
-# Snowflake — via variáveis de ambiente (recomendado):
-#   export SNOWFLAKE_ACCOUNT="myorg-myaccount"
-#   export SNOWFLAKE_USER="nexus_terraform_svc"
+# NEXUS AI DataOps — Dev Environment (Terraform Variables)
+# Credenciais via variáveis de ambiente (não commitar valores reais):
+#   export SNOWFLAKE_ACCOUNT="..."
+#   export SNOWFLAKE_USER="..."
 #   export SNOWFLAKE_PASSWORD="..."
-#   ou
-#   export SNOWFLAKE_PRIVATE_KEY_PATH="/path/to/rsa_key.p8"
 
-snowflake_role = "SYSADMIN"
+snowflake_role      = "SYSADMIN"
+environment         = "dev"
+app_database        = "NEXUS_APP"
+app_stage_database  = "NEXUS_APP_PKG"
+
+# Warehouses — tamanhos reduzidos para dev
+ui_warehouse_size      = "X-SMALL"
+compute_warehouse_size = "SMALL"
+ml_warehouse_size      = "SMALL"
+
+# Auto-suspend agressivo em dev para economizar créditos
+ui_auto_suspend      = 60
+compute_auto_suspend = 120
+ml_auto_suspend      = 60
+
+# Feature flags dev
+enable_data_masking   = false
+enable_row_access     = false
+enable_network_rules  = false
+demo_mode             = true
+vertical_pack         = "saas_customer"
+
+# Tags de rastreabilidade
+tags = {
+  environment = "dev"
+  project     = "nexus-ai-dataops"
+  managed_by  = "terraform"
+}
