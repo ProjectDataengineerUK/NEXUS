@@ -108,7 +108,7 @@ SELECT
 FROM transactions;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- DT 3: AI.CHURN_FEATURES_RT — feature store para ML (30min lag)
+-- DT 3: AI.CHURN_FEATURES_RT — feature store para ML (1h lag — alinhado com CUSTOMER_360)
 -- ─────────────────────────────────────────────────────────────────────────────
 
 CREATE OR REPLACE DYNAMIC TABLE AI.CHURN_FEATURES_RT

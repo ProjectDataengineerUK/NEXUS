@@ -239,7 +239,8 @@ jobs:
                        "not found in stage",        # handler file missing (upload via 04-release)
                        "application package",       # Native App pkg not available on trial
                        "grant/revoke order",        # stage READ/WRITE order via role inheritance
-                       "003040"                      # explicit code for grant/revoke order error
+                       "003040",                     # explicit code for grant/revoke order error
+                       "002715"                      # Dynamic Table lag constraint — caught by code, not config
                        )
 
           for script in scripts:
