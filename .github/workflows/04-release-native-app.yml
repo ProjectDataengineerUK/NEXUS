@@ -154,40 +154,47 @@ jobs:
           VERSION_SLUG  = os.environ["APP_VERSION_SLUG"]
           STAGE         = f"@NEXUS_AI_DATAOPS_PKG.PUBLIC.APP_STAGE/{VERSION_SLUG}"
 
-          def silent(fn, *args, **kwargs):
-              try: fn(*args, **kwargs)
-              except Exception as e: print(f"  [skip] {e}")
+          PKG = "NEXUS_AI_DATAOPS_PKG"
 
-          # Com release channels habilitados, a API correta é REGISTER/DEREGISTER
-          # (não ADD/DROP). DEREGISTER remove a versão de TODOS os canais + package.
+          def silent(sql):
+              try: cs.execute(sql); return True
+              except Exception as e: print(f"  [skip] {e}"); return False
 
-          # 1. DEREGISTER todas as versões existentes para liberar o slot
-          rows = cs.execute(
-              "SHOW VERSIONS IN APPLICATION PACKAGE NEXUS_AI_DATAOPS_PKG"
-          ).fetchall()
-          col = [d[0].upper() for d in cs.description]
+          def remove_from_channel(vname):
+              """Tenta remover versão do canal DEFAULT com múltiplos formatos de SQL."""
+              for sql in [
+                  f"ALTER APPLICATION PACKAGE {PKG} MODIFY RELEASE CHANNEL DEFAULT REMOVE VERSION {vname}",
+                  f"ALTER APPLICATION PACKAGE {PKG} MODIFY RELEASE CHANNEL DEFAULT REMOVE {vname}",
+                  f"ALTER APPLICATION PACKAGE {PKG} MODIFY RELEASE CHANNEL DEFAULT DROP VERSION {vname}",
+              ]:
+                  if silent(sql):
+                      print(f"  Removed {vname} from DEFAULT channel")
+                      return True
+              return False
+
+          # 1. Limpar versões existentes: remover do canal → deregistrar
+          rows = cs.execute(f"SHOW VERSIONS IN APPLICATION PACKAGE {PKG}").fetchall()
+          col  = [d[0].upper() for d in cs.description]
           for row in rows:
               vname = row[col.index("VERSION")]
-              print(f"  Deregistering {vname}...")
-              silent(cs.execute, f"""
-                  ALTER APPLICATION PACKAGE NEXUS_AI_DATAOPS_PKG
-                      DEREGISTER VERSION {vname}
-              """)
+              print(f"  Clearing {vname}...")
+              remove_from_channel(vname)
+              silent(f"ALTER APPLICATION PACKAGE {PKG} DEREGISTER VERSION {vname}")
 
-          # 2. REGISTER a versão nova (cria no package e associa ao DEFAULT channel)
-          cs.execute(f"""
-              ALTER APPLICATION PACKAGE NEXUS_AI_DATAOPS_PKG
-                  REGISTER VERSION {VERSION_SLUG}
-                  USING '{STAGE}'
-                  LABEL = '{VERSION_LABEL}'
-          """)
+          # 2. Registrar a versão nova
+          cs.execute(
+              f"ALTER APPLICATION PACKAGE {PKG} "
+              f"REGISTER VERSION {VERSION_SLUG} "
+              f"USING '{STAGE}' "
+              f"LABEL = '{VERSION_LABEL}'"
+          )
 
           # 3. Adicionar ao canal DEFAULT
-          cs.execute(f"""
-              ALTER APPLICATION PACKAGE NEXUS_AI_DATAOPS_PKG
-                  MODIFY RELEASE CHANNEL DEFAULT
-                  ADD VERSION {VERSION_SLUG}
-          """)
+          cs.execute(
+              f"ALTER APPLICATION PACKAGE {PKG} "
+              f"MODIFY RELEASE CHANNEL DEFAULT "
+              f"ADD VERSION {VERSION_SLUG}"
+          )
 
           print(f"Native App version {VERSION_SLUG} ({VERSION_LABEL}) released.")
           cs.close()
