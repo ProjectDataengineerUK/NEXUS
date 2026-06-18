@@ -24,19 +24,10 @@ on:
         default: "false"
         type: boolean
 
-  # Também roda após o deploy de artefatos
-  workflow_run:
-    workflows: ["02 · Deploy — Artefatos Snowflake"]
-    types: [completed]
-    branches: [main]
-
 jobs:
   dbt-run:
     name: "dbt run + test (${{ github.event.inputs.target || 'dev' }})"
     runs-on: ubuntu-latest
-    if: |
-      github.event_name != 'workflow_run' ||
-      github.event.workflow_run.conclusion == 'success'
 
     env:
       DBT_TARGET:          ${{ github.event.inputs.target || 'dev' }}
