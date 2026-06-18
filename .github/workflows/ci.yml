@@ -352,6 +352,7 @@ jobs:
                        "002715",
                        "data_quality_monitoring",
                        "001422",
+                       "ambiguous column name",  # 002028: ADD COLUMN IF NOT EXISTS when col already exists
                        )
 
           for script in scripts:
