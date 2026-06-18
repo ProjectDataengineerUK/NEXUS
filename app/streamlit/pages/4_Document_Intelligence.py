@@ -221,7 +221,7 @@ elif tab_choice == "📋 Contratos":
         expiring = run_query(f"""
             SELECT contract_name, customer_name, end_date,
                    contract_value_usd, auto_renewal, days_to_expiry
-            FROM NEXUS_APP.AI.V_CONTRACT_INTELLIGENCE
+            FROM AI.V_CONTRACT_INTELLIGENCE
             WHERE org_id = '{ORG_ID}'
               AND renewal_status IN ('EXPIRING_SOON', 'RENEW_WATCH')
             ORDER BY days_to_expiry

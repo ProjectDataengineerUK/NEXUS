@@ -31,21 +31,29 @@ GRANT APPLICATION ROLE NEXUS_VIEWER  TO APPLICATION ROLE NEXUS_ANALYST;
 -- ─────────────────────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS CORE.CUSTOMERS (
-    customer_id     VARCHAR(36)  NOT NULL DEFAULT UUID_STRING(),
-    org_id          VARCHAR(36)  NOT NULL,
-    name            VARCHAR(500) NOT NULL,
-    email           VARCHAR(500),
-    phone           VARCHAR(50),
-    segment         VARCHAR(50),
-    region          VARCHAR(100),
-    industry        VARCHAR(100),
-    status          VARCHAR(50)  DEFAULT 'active',
-    lifecycle_stage VARCHAR(50)  DEFAULT 'active',
-    nps_score       INTEGER,
-    customer_since  TIMESTAMP_TZ DEFAULT CURRENT_TIMESTAMP(),
-    updated_at      TIMESTAMP_TZ DEFAULT CURRENT_TIMESTAMP(),
+    customer_id       VARCHAR(36)   NOT NULL DEFAULT UUID_STRING(),
+    org_id            VARCHAR(36)   NOT NULL,
+    name              VARCHAR(500)  NOT NULL,
+    email             VARCHAR(500),
+    phone             VARCHAR(50),
+    segment           VARCHAR(50),
+    region            VARCHAR(100),
+    industry          VARCHAR(100),
+    status            VARCHAR(50)   DEFAULT 'active',
+    lifecycle_stage   VARCHAR(50)   DEFAULT 'active',
+    nps_score         INTEGER,
+    arr               DECIMAL(18,2),
+    mrr               DECIMAL(18,2),
+    contract_end_date DATE,
+    customer_since    TIMESTAMP_TZ  DEFAULT CURRENT_TIMESTAMP(),
+    updated_at        TIMESTAMP_TZ  DEFAULT CURRENT_TIMESTAMP(),
     PRIMARY KEY (customer_id)
 );
+
+-- Migrations: garante colunas adicionadas após versões anteriores
+ALTER TABLE CORE.CUSTOMERS ADD COLUMN IF NOT EXISTS arr               DECIMAL(18,2);
+ALTER TABLE CORE.CUSTOMERS ADD COLUMN IF NOT EXISTS mrr               DECIMAL(18,2);
+ALTER TABLE CORE.CUSTOMERS ADD COLUMN IF NOT EXISTS contract_end_date DATE;
 
 CREATE TABLE IF NOT EXISTS CORE.SUBSCRIPTIONS (
     subscription_id VARCHAR(36)   NOT NULL DEFAULT UUID_STRING(),
@@ -317,6 +325,104 @@ CREATE STAGE IF NOT EXISTS CORE.ML_STAGE
     ENCRYPTION = (TYPE = 'SNOWFLAKE_SSE');
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- Tabelas de Agente (Agent Workbench)
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS AI.AGENT_SESSIONS (
+    session_id    VARCHAR(36)  NOT NULL DEFAULT UUID_STRING(),
+    org_id        VARCHAR(36)  NOT NULL,
+    user_name     VARCHAR(255) NOT NULL,
+    agent_type    VARCHAR(100) DEFAULT 'general',
+    status        VARCHAR(50)  DEFAULT 'active',
+    message_count INTEGER      DEFAULT 0,
+    started_at    TIMESTAMP_TZ DEFAULT CURRENT_TIMESTAMP(),
+    ended_at      TIMESTAMP_TZ,
+    PRIMARY KEY (session_id)
+);
+
+CREATE TABLE IF NOT EXISTS AI.AGENT_MESSAGES (
+    message_id  VARCHAR(36)  NOT NULL DEFAULT UUID_STRING(),
+    session_id  VARCHAR(36)  NOT NULL,
+    org_id      VARCHAR(36)  NOT NULL,
+    role        VARCHAR(20)  NOT NULL,
+    content     TEXT         NOT NULL,
+    tool_calls  VARIANT,
+    latency_ms  INTEGER,
+    created_at  TIMESTAMP_TZ DEFAULT CURRENT_TIMESTAMP(),
+    PRIMARY KEY (message_id)
+);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Fila de aprovação humana
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS CORE.APPROVAL_QUEUE (
+    approval_id  VARCHAR(36)  NOT NULL DEFAULT UUID_STRING(),
+    org_id       VARCHAR(36)  NOT NULL,
+    action_type  VARCHAR(100) NOT NULL,
+    entity_id    VARCHAR(36),
+    payload      VARIANT,
+    status       VARCHAR(50)  DEFAULT 'pending',
+    requested_by VARCHAR(255),
+    approved_by  VARCHAR(255),
+    created_at   TIMESTAMP_TZ DEFAULT CURRENT_TIMESTAMP(),
+    decided_at   TIMESTAMP_TZ,
+    PRIMARY KEY (approval_id)
+);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- MART: visões consolidadas para Streamlit
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE VIEW MART.CUSTOMER_360 AS
+SELECT
+    c.customer_id,
+    c.org_id,
+    c.name,
+    c.name                                                        AS customer_name,
+    c.email,
+    c.segment,
+    c.region,
+    c.industry,
+    c.status,
+    c.lifecycle_stage,
+    c.nps_score,
+    c.arr,
+    c.mrr,
+    c.contract_end_date,
+    c.customer_since,
+    c.updated_at,
+    cs.churn_probability,
+    cs.risk_level                                                 AS churn_risk_level,
+    cs.expected_revenue_at_risk                                   AS arr_usd,
+    cs.recommended_action,
+    cs.top_drivers,
+    cs.scored_at,
+    ROUND((1.0 - COALESCE(cs.churn_probability, 0.5)) * 100, 0)  AS health_score
+FROM CORE.CUSTOMERS c
+LEFT JOIN (
+    SELECT *,
+           ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY scored_at DESC) AS rn
+    FROM AI.CHURN_SCORES
+) cs ON c.customer_id = cs.customer_id AND cs.rn = 1;
+
+CREATE OR REPLACE VIEW AI.V_CONTRACT_INTELLIGENCE AS
+SELECT
+    d.document_id,
+    d.org_id,
+    d.document_name,
+    d.document_type,
+    d.processing_status,
+    d.summary,
+    d.created_at,
+    COUNT(ch.chunk_id) AS chunk_count
+FROM CORE.DOCUMENTS d
+LEFT JOIN AI.DOCUMENT_CHUNKS ch ON d.document_id = ch.document_id
+WHERE d.document_type IN ('contract', 'sla', 'amendment', 'addendum')
+GROUP BY d.document_id, d.org_id, d.document_name, d.document_type,
+         d.processing_status, d.summary, d.created_at;
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- Grants para Application Roles
 -- ─────────────────────────────────────────────────────────────────────────────
 
@@ -363,6 +469,15 @@ GRANT ALL    ON STAGE CORE.ML_STAGE             TO APPLICATION ROLE NEXUS_ADMIN;
 GRANT INSERT ON TABLE AUDIT.PROMPT_LOG TO APPLICATION ROLE NEXUS_VIEWER;
 GRANT INSERT ON TABLE AUDIT.PROMPT_LOG TO APPLICATION ROLE NEXUS_ANALYST;
 GRANT SELECT ON TABLE AUDIT.PROMPT_LOG TO APPLICATION ROLE NEXUS_ADMIN;
+
+-- Grants para tabelas adicionais
+GRANT SELECT ON VIEW  MART.CUSTOMER_360             TO APPLICATION ROLE NEXUS_VIEWER;
+GRANT SELECT ON VIEW  AI.V_CONTRACT_INTELLIGENCE    TO APPLICATION ROLE NEXUS_VIEWER;
+GRANT SELECT, INSERT ON TABLE AI.AGENT_SESSIONS     TO APPLICATION ROLE NEXUS_VIEWER;
+GRANT SELECT, INSERT ON TABLE AI.AGENT_MESSAGES     TO APPLICATION ROLE NEXUS_VIEWER;
+GRANT SELECT, INSERT ON TABLE CORE.APPROVAL_QUEUE   TO APPLICATION ROLE NEXUS_ANALYST;
+GRANT ALL    ON TABLE  CORE.APPROVAL_QUEUE          TO APPLICATION ROLE NEXUS_ADMIN;
+GRANT ALL    ON TABLE  AI.RECOMMENDATIONS           TO APPLICATION ROLE NEXUS_ANALYST;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Streamlit UI (referenciado por manifest.yml como default_streamlit)

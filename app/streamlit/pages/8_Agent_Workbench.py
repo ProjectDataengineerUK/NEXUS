@@ -117,7 +117,7 @@ try:
             COUNT_IF(started_at >= CURRENT_DATE())                        AS sessions_today,
             SUM(CASE WHEN started_at >= CURRENT_DATE() THEN message_count ELSE 0 END) AS messages_today,
             ROUND(AVG(NULLIF(total_tokens, 0)), 0)                        AS avg_tokens
-        FROM NEXUS_APP.AI.AGENT_SESSIONS
+        FROM AI.AGENT_SESSIONS
         WHERE org_id = '{ORG_ID}'
     """)
 
@@ -137,7 +137,7 @@ for col, (agent_id, info) in zip(cols, AGENTS.items()):
         try:
             cnt = run_query(f"""
                 SELECT COUNT(*) AS n
-                FROM NEXUS_APP.AI.AGENT_SESSIONS
+                FROM AI.AGENT_SESSIONS
                 WHERE org_id = '{ORG_ID}' AND agent_id = '{agent_id}'
                   AND started_at >= DATEADD('day', -7, CURRENT_TIMESTAMP())
             """)
@@ -207,7 +207,7 @@ try:
         SELECT session_id, agent_id, user_name, user_role,
                TO_CHAR(started_at, 'YYYY-MM-DD HH24:MI') AS started_at,
                message_count, total_tokens
-        FROM NEXUS_APP.AI.AGENT_SESSIONS
+        FROM AI.AGENT_SESSIONS
         WHERE org_id = '{ORG_ID}'
         ORDER BY started_at DESC
         LIMIT 20
@@ -227,7 +227,7 @@ try:
             msgs = run_query(f"""
                 SELECT role, LEFT(content, 300) AS content_preview,
                        TO_CHAR(created_at, 'HH24:MI:SS') AS time
-                FROM NEXUS_APP.AI.AGENT_MESSAGES
+                FROM AI.AGENT_MESSAGES
                 WHERE session_id = '{session_id}'
                 ORDER BY created_at
             """)

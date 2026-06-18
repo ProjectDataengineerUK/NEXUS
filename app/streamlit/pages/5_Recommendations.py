@@ -108,7 +108,7 @@ kpi_df = run_sql(f"""
         COALESCE(SUM(expected_impact_usd), 0)                                AS total_impact,
         COUNT(CASE WHEN recommendation_type = 'churn_prevention' THEN 1 END) AS churn_actions,
         COUNT(CASE WHEN recommendation_type = 'upsell_opportunity' THEN 1 END) AS upsell_actions
-    FROM NEXUS_APP.AI.RECOMMENDATIONS
+    FROM AI.RECOMMENDATIONS
     WHERE org_id = '{ORG_ID}'
       AND is_active = TRUE
       AND status NOT IN ('completed', 'dismissed')
@@ -116,7 +116,7 @@ kpi_df = run_sql(f"""
 
 completed_df = run_sql(f"""
     SELECT COUNT(*) AS completed_week
-    FROM NEXUS_APP.AI.RECOMMENDATIONS
+    FROM AI.RECOMMENDATIONS
     WHERE org_id = '{ORG_ID}'
       AND status = 'completed'
       AND acted_at >= DATEADD('day', -7, CURRENT_TIMESTAMP())
@@ -177,10 +177,10 @@ if view_mode == "🎯 Fila de Ações":
             c360.arr,
             c360.nearest_renewal_date,
             c360.nps_score
-        FROM NEXUS_APP.AI.RECOMMENDATIONS r
-        JOIN NEXUS_APP.CORE.CUSTOMERS c
+        FROM AI.RECOMMENDATIONS r
+        JOIN CORE.CUSTOMERS c
             ON r.entity_id = c.customer_id AND r.org_id = c.org_id
-        LEFT JOIN NEXUS_APP.MART.CUSTOMER_360 c360
+        LEFT JOIN MART.CUSTOMER_360 c360
             ON r.entity_id = c360.customer_id
         WHERE r.org_id = '{ORG_ID}'
           AND r.is_active = TRUE
@@ -241,7 +241,7 @@ if view_mode == "🎯 Fila de Ações":
 
                     if btn1.button("✅ Concluir", key=f"done_{rec_id}"):
                         msg = call_sp(
-                            f"CALL NEXUS_APP.CORE.SP_UPDATE_RECOMMENDATION("
+                            f"CALL CORE.SP_UPDATE_RECOMMENDATION("
                             f"'{rec_id}', 'completed', 'Marcado via Action Center')"
                         )
                         if msg.startswith("OK"):
@@ -253,7 +253,7 @@ if view_mode == "🎯 Fila de Ações":
 
                     if btn2.button("🔄 Andamento", key=f"wip_{rec_id}"):
                         msg = call_sp(
-                            f"CALL NEXUS_APP.CORE.SP_UPDATE_RECOMMENDATION("
+                            f"CALL CORE.SP_UPDATE_RECOMMENDATION("
                             f"'{rec_id}', 'in_progress', NULL)"
                         )
                         if msg.startswith("OK"):
@@ -265,7 +265,7 @@ if view_mode == "🎯 Fila de Ações":
 
                     if btn3.button("🚫 Descartar", key=f"dismiss_{rec_id}"):
                         msg = call_sp(
-                            f"CALL NEXUS_APP.CORE.SP_UPDATE_RECOMMENDATION("
+                            f"CALL CORE.SP_UPDATE_RECOMMENDATION("
                             f"'{rec_id}', 'dismissed', 'Descartado via Action Center')"
                         )
                         if msg.startswith("OK"):
@@ -317,10 +317,10 @@ elif view_mode == "📊 Churn Scores":
             c360.health_score,
             c360.arr,
             c360.nearest_renewal_date
-        FROM NEXUS_APP.AI.CHURN_SCORES cs
-        JOIN NEXUS_APP.CORE.CUSTOMERS c
+        FROM AI.CHURN_SCORES cs
+        JOIN CORE.CUSTOMERS c
             ON cs.customer_id = c.customer_id AND cs.org_id = c.org_id
-        LEFT JOIN NEXUS_APP.MART.CUSTOMER_360 c360
+        LEFT JOIN MART.CUSTOMER_360 c360
             ON cs.customer_id = c360.customer_id
         WHERE cs.org_id = '{ORG_ID}'
         ORDER BY cs.churn_probability DESC
@@ -383,7 +383,7 @@ elif view_mode == "📊 Churn Scores":
 
         if run_col1.button("🧠 Re-executar Scoring", type="primary"):
             with st.spinner("Executando modelo Snowpark ML…"):
-                result = call_sp("CALL NEXUS_APP.CORE.SP_RUN_CHURN_PIPELINE('score')")
+                result = call_sp("CALL CORE.SP_RUN_CHURN_PIPELINE('score')")
             if result.startswith("OK"):
                 st.success(result)
                 st.cache_data.clear()
@@ -393,7 +393,7 @@ elif view_mode == "📊 Churn Scores":
 
         if run_col2.button("💡 Gerar Recomendações via Cortex"):
             with st.spinner("Gerando recomendações com Cortex Complete…"):
-                result = call_sp("CALL NEXUS_APP.CORE.SP_RUN_CHURN_PIPELINE('recs')")
+                result = call_sp("CALL CORE.SP_RUN_CHURN_PIPELINE('recs')")
             if result.startswith("OK"):
                 st.success(result)
                 st.cache_data.clear()
@@ -419,8 +419,8 @@ else:
             r.status,
             r.created_at,
             r.acted_at
-        FROM NEXUS_APP.AI.RECOMMENDATIONS r
-        JOIN NEXUS_APP.CORE.CUSTOMERS c
+        FROM AI.RECOMMENDATIONS r
+        JOIN CORE.CUSTOMERS c
             ON r.entity_id = c.customer_id AND r.org_id = c.org_id
         WHERE r.org_id = '{ORG_ID}'
         ORDER BY r.created_at DESC

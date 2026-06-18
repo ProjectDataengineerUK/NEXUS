@@ -18,6 +18,9 @@ def run_query(sql: str) -> pd.DataFrame:
     return get_session().sql(sql).to_pandas()
 
 
+execute_query = run_query
+
+
 def run_sql(sql: str) -> list:
     return get_session().sql(sql).collect()
 

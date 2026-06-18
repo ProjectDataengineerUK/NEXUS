@@ -219,7 +219,7 @@ with sim_col1:
 
     try:
         at_risk_count = int(run_query(f"""
-            SELECT COUNT(*) AS n FROM NEXUS_APP.MART.CUSTOMER_360
+            SELECT COUNT(*) AS n FROM MART.CUSTOMER_360
             WHERE org_id = '{ORG_ID}' AND churn_risk_level = 'HIGH'
         """)["N"].iloc[0] or 0)
     except Exception:
@@ -246,7 +246,7 @@ with sim_col2:
 
     try:
         active_count = int(run_query(f"""
-            SELECT COUNT(*) AS n FROM NEXUS_APP.MART.CUSTOMER_360
+            SELECT COUNT(*) AS n FROM MART.CUSTOMER_360
             WHERE org_id = '{ORG_ID}' AND lifecycle_stage = 'active'
         """)["N"].iloc[0] or 0)
     except Exception:

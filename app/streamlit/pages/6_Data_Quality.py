@@ -27,52 +27,52 @@ def run_dq_checks():
 
     checks = [
         # Freshness — Dynamic Tables (minutos desde último refresh)
-        ("NEXUS_APP.MART.CUSTOMER_360",   "freshness_minutes",
+        ("MART.CUSTOMER_360",   "freshness_minutes",
          "SELECT DATEDIFF('minute', LAST_ALTERED, CURRENT_TIMESTAMP()) "
          "FROM INFORMATION_SCHEMA.TABLES "
          "WHERE TABLE_SCHEMA='MART' AND TABLE_NAME='CUSTOMER_360'",
          120.0),
 
         # Completude — customers sem email
-        ("NEXUS_APP.CORE.CUSTOMERS", "null_rate_email",
+        ("CORE.CUSTOMERS", "null_rate_email",
          "SELECT ROUND(COUNT_IF(email IS NULL OR email='')*100.0/NULLIF(COUNT(*),0),2) "
-         "FROM NEXUS_APP.CORE.CUSTOMERS WHERE org_id='" + ORG_ID + "'",
+         "FROM CORE.CUSTOMERS WHERE org_id='" + ORG_ID + "'",
          5.0),
 
         # Completude — customers sem NPS
-        ("NEXUS_APP.CORE.CUSTOMERS", "null_rate_nps",
+        ("CORE.CUSTOMERS", "null_rate_nps",
          "SELECT ROUND(COUNT_IF(nps_score IS NULL)*100.0/NULLIF(COUNT(*),0),2) "
-         "FROM NEXUS_APP.CORE.CUSTOMERS WHERE org_id='" + ORG_ID + "'",
+         "FROM CORE.CUSTOMERS WHERE org_id='" + ORG_ID + "'",
          30.0),
 
         # Unicidade — customer_id duplicado
-        ("NEXUS_APP.CORE.CUSTOMERS", "duplicate_customer_ids",
+        ("CORE.CUSTOMERS", "duplicate_customer_ids",
          "SELECT COUNT(*)-COUNT(DISTINCT customer_id) "
-         "FROM NEXUS_APP.CORE.CUSTOMERS WHERE org_id='" + ORG_ID + "'",
+         "FROM CORE.CUSTOMERS WHERE org_id='" + ORG_ID + "'",
          0.0),
 
         # Volume mínimo — customers ativos
-        ("NEXUS_APP.CORE.CUSTOMERS", "active_customer_count",
-         "SELECT COUNT(*) FROM NEXUS_APP.CORE.CUSTOMERS "
+        ("CORE.CUSTOMERS", "active_customer_count",
+         "SELECT COUNT(*) FROM CORE.CUSTOMERS "
          "WHERE org_id='" + ORG_ID + "' AND status='active'",
          1.0),
 
         # Validade — health_score no range 0-100
-        ("NEXUS_APP.MART.CUSTOMER_360", "invalid_health_score",
+        ("MART.CUSTOMER_360", "invalid_health_score",
          "SELECT COUNT_IF(health_score < 0 OR health_score > 100) "
-         "FROM NEXUS_APP.MART.CUSTOMER_360",
+         "FROM MART.CUSTOMER_360",
          0.0),
 
         # Completude — recommendations sem texto
-        ("NEXUS_APP.AI.RECOMMENDATIONS", "null_rec_text",
+        ("AI.RECOMMENDATIONS", "null_rec_text",
          "SELECT COUNT_IF(recommendation_text IS NULL OR recommendation_text='') "
-         "FROM NEXUS_APP.AI.RECOMMENDATIONS WHERE org_id='" + ORG_ID + "'",
+         "FROM AI.RECOMMENDATIONS WHERE org_id='" + ORG_ID + "'",
          0.0),
 
         # Completude — churn scores pontuados nas últimas 48h
-        ("NEXUS_APP.AI.CHURN_SCORES", "stale_churn_scores",
+        ("AI.CHURN_SCORES", "stale_churn_scores",
          "SELECT COUNT_IF(scored_at < DATEADD('hour',-48,CURRENT_TIMESTAMP())) "
-         "FROM NEXUS_APP.AI.CHURN_SCORES WHERE org_id='" + ORG_ID + "'",
+         "FROM AI.CHURN_SCORES WHERE org_id='" + ORG_ID + "'",
          0.0),
     ]
 
@@ -90,7 +90,7 @@ def run_dq_checks():
                 status = "PASS" if val <= threshold else "FAIL"
 
             session.sql(f"""
-                INSERT INTO NEXUS_APP.AUDIT.DATA_QUALITY_RESULTS
+                INSERT INTO AUDIT.DATA_QUALITY_RESULTS
                     (org_id, table_name, metric_name, metric_value, threshold, status)
                 VALUES
                     ('{ORG_ID}', '{table}', '{metric}', {val:.6f}, {threshold:.6f}, '{status}')
@@ -151,7 +151,7 @@ if dq_view == "📊 Status Atual":
             SELECT *,
                 ROW_NUMBER() OVER (PARTITION BY table_name, metric_name
                                    ORDER BY measured_at DESC) AS rn
-            FROM NEXUS_APP.AUDIT.DATA_QUALITY_RESULTS
+            FROM AUDIT.DATA_QUALITY_RESULTS
             WHERE org_id = '{ORG_ID}'
         )
         WHERE rn = 1
@@ -214,7 +214,7 @@ elif dq_view == "📜 Histórico":
             COUNT_IF(status='PASS')          AS passed,
             COUNT_IF(status='WARN')          AS warned,
             COUNT_IF(status='FAIL')          AS failed
-        FROM NEXUS_APP.AUDIT.DATA_QUALITY_RESULTS
+        FROM AUDIT.DATA_QUALITY_RESULTS
         WHERE org_id = '{ORG_ID}'
           AND measured_at >= DATEADD('day', -7, CURRENT_TIMESTAMP())
         GROUP BY 1
@@ -240,7 +240,7 @@ elif dq_view == "📜 Histórico":
 
     raw_df = run_sql(f"""
         SELECT table_name, metric_name, metric_value, threshold, status, measured_at
-        FROM NEXUS_APP.AUDIT.DATA_QUALITY_RESULTS
+        FROM AUDIT.DATA_QUALITY_RESULTS
         WHERE org_id = '{ORG_ID}'
         ORDER BY measured_at DESC
         LIMIT 200

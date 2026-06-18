@@ -95,7 +95,7 @@ if admin_tab == "🔐 RBAC":
 
     org_map_df = run_sql("""
         SELECT org_id, user_name, created_at
-        FROM NEXUS_APP.CONFIG.ORG_USER_MAP
+        FROM CONFIG.ORG_USER_MAP
         ORDER BY org_id, user_name
     """)
 
@@ -114,7 +114,7 @@ if admin_tab == "🔐 RBAC":
 
     if submitted and new_user.strip():
         ok, msg = execute(f"""
-            INSERT INTO NEXUS_APP.CONFIG.ORG_USER_MAP (org_id, user_name)
+            INSERT INTO CONFIG.ORG_USER_MAP (org_id, user_name)
             VALUES ('{new_org}', '{new_user.strip()}')
         """)
         if ok:
@@ -208,11 +208,11 @@ elif admin_tab == "🎭 Masking Policies":
     **`GOVERNANCE.RAP_ORG_ISOLATION`** — aplicada em todas as tabelas de `CORE.*`
 
     ```sql
-    CREATE ROW ACCESS POLICY NEXUS_APP.GOVERNANCE.RAP_ORG_ISOLATION
+    CREATE ROW ACCESS POLICY GOVERNANCE.RAP_ORG_ISOLATION
         AS (record_org_id VARCHAR) RETURNS BOOLEAN ->
         IS_ROLE_IN_SESSION('NEXUS_ADMIN')
         OR EXISTS (
-            SELECT 1 FROM NEXUS_APP.CONFIG.ORG_USER_MAP
+            SELECT 1 FROM CONFIG.ORG_USER_MAP
             WHERE org_id    = record_org_id
               AND user_name = CURRENT_USER()
         );
@@ -232,8 +232,8 @@ elif admin_tab == "🎭 Masking Policies":
                 REF_ENTITY_NAME   AS tabela,
                 REF_COLUMN_NAME   AS coluna,
                 POLICY_NAME       AS policy
-            FROM TABLE(NEXUS_APP.INFORMATION_SCHEMA.POLICY_REFERENCES(
-                POLICY_NAME => 'NEXUS_APP.GOVERNANCE.MASK_EMAIL'
+            FROM TABLE(INFORMATION_SCHEMA.POLICY_REFERENCES(
+                POLICY_NAME => 'GOVERNANCE.MASK_EMAIL'
             ))
         """)
         if not applied_df.empty:
@@ -242,8 +242,8 @@ elif admin_tab == "🎭 Masking Policies":
     except Exception:
         st.caption("_Para verificar aplicação das policies, execute no Snowflake:_")
         st.code("""
-SELECT * FROM TABLE(NEXUS_APP.INFORMATION_SCHEMA.POLICY_REFERENCES(
-    POLICY_NAME => 'NEXUS_APP.GOVERNANCE.MASK_EMAIL'
+SELECT * FROM TABLE(INFORMATION_SCHEMA.POLICY_REFERENCES(
+    POLICY_NAME => 'GOVERNANCE.MASK_EMAIL'
 ));
         """, language="sql")
 
@@ -276,7 +276,7 @@ elif admin_tab == "📋 Audit Log":
                 latency_ms,
                 was_helpful,
                 session_id
-            FROM NEXUS_APP.AUDIT.CORTEX_ANALYST_LOG
+            FROM AUDIT.CORTEX_ANALYST_LOG
             WHERE org_id = '{ORG_ID}'
               AND created_at >= DATEADD('day', -{days_back}, CURRENT_TIMESTAMP())
             ORDER BY created_at DESC
@@ -302,7 +302,7 @@ elif admin_tab == "📋 Audit Log":
                 entity_id,
                 status,
                 external_system
-            FROM NEXUS_APP.AUDIT.ACTION_LOG
+            FROM AUDIT.ACTION_LOG
             WHERE org_id = '{ORG_ID}'
               AND created_at >= DATEADD('day', -{days_back}, CURRENT_TIMESTAMP())
             ORDER BY created_at DESC
@@ -325,7 +325,7 @@ elif admin_tab == "📋 Audit Log":
                 action,
                 success,
                 ip_address
-            FROM NEXUS_APP.AUDIT.ACCESS_LOG
+            FROM AUDIT.ACCESS_LOG
             WHERE org_id = '{ORG_ID}'
               AND created_at >= DATEADD('day', -{days_back}, CURRENT_TIMESTAMP())
             ORDER BY created_at DESC
@@ -353,7 +353,7 @@ elif admin_tab == "📋 Audit Log":
                 tool_name,
                 model_used,
                 latency_ms
-            FROM NEXUS_APP.AUDIT.AGENT_CHAT_LOG
+            FROM AUDIT.AGENT_CHAT_LOG
             WHERE org_id = '{ORG_ID}'
               AND created_at >= DATEADD('day', -{days_back}, CURRENT_TIMESTAMP())
             ORDER BY created_at DESC
@@ -386,7 +386,7 @@ else:
 
     settings_df = run_sql("""
         SELECT setting_key, setting_value, description, updated_at
-        FROM NEXUS_APP.CONFIG.APP_SETTINGS
+        FROM CONFIG.APP_SETTINGS
         ORDER BY setting_key
     """)
 
@@ -417,7 +417,7 @@ else:
             errors = []
             for key, val in updated_values.items():
                 ok, msg = execute(f"""
-                    UPDATE NEXUS_APP.CONFIG.APP_SETTINGS
+                    UPDATE CONFIG.APP_SETTINGS
                     SET setting_value = '{val.replace("'","''")}',
                         updated_at    = CURRENT_TIMESTAMP()
                     WHERE setting_key = '{key}'

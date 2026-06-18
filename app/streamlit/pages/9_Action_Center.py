@@ -41,7 +41,7 @@ try:
             COUNT_IF(r.status = 'pending' AND r.priority = 'HIGH')  AS high_priority,
             SUM(CASE WHEN r.status = 'pending' AND r.is_active
                      THEN r.expected_impact_usd ELSE 0 END)         AS total_impact
-        FROM NEXUS_APP.AI.RECOMMENDATIONS r
+        FROM AI.RECOMMENDATIONS r
         WHERE r.org_id = '{ORG_ID}'
     """)
     c1, c2, c3 = st.columns(3)
@@ -92,8 +92,8 @@ try:
             r.expected_impact_usd,
             r.status,
             TO_CHAR(r.expires_at, 'YYYY-MM-DD') AS expires_at
-        FROM NEXUS_APP.AI.RECOMMENDATIONS r
-        JOIN NEXUS_APP.MART.CUSTOMER_360 c
+        FROM AI.RECOMMENDATIONS r
+        JOIN MART.CUSTOMER_360 c
              ON r.entity_id = c.customer_id AND c.org_id = r.org_id
         WHERE r.org_id = '{ORG_ID}'
           AND r.is_active = TRUE
@@ -140,7 +140,7 @@ else:
                 if col_btn1.button("✅ Executar", key=f"exec_{rec_id}"):
                     try:
                         execute_query(f"""
-                            UPDATE NEXUS_APP.AI.RECOMMENDATIONS
+                            UPDATE AI.RECOMMENDATIONS
                             SET status = 'accepted', updated_at = CURRENT_TIMESTAMP()
                             WHERE recommendation_id = '{rec_id}'
                         """)
@@ -152,7 +152,7 @@ else:
                 if col_btn2.button("🚫 Descartar", key=f"dismiss_{rec_id}"):
                     try:
                         execute_query(f"""
-                            UPDATE NEXUS_APP.AI.RECOMMENDATIONS
+                            UPDATE AI.RECOMMENDATIONS
                             SET status = 'dismissed', updated_at = CURRENT_TIMESTAMP()
                             WHERE recommendation_id = '{rec_id}'
                         """)
@@ -202,7 +202,7 @@ try:
             DATEDIFF('hour', created_at, expires_at) AS hours_remaining,
             TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI') AS requested_at,
             action_payload
-        FROM NEXUS_APP.CORE.APPROVAL_QUEUE
+        FROM CORE.APPROVAL_QUEUE
         WHERE org_id = '{ORG_ID}'
           AND status = 'pending'
           AND expires_at > CURRENT_TIMESTAMP()
@@ -247,7 +247,7 @@ else:
             with col_btns:
                 if st.button("✅ Aprovar", key=f"approve_{appr_id}", type="primary"):
                     try:
-                        execute_query(f"CALL NEXUS_APP.CORE.APPROVE_ACTION('{appr_id}', '{USER}')")
+                        execute_query(f"CALL CORE.APPROVE_ACTION('{appr_id}', '{USER}')")
                         st.success("Ação aprovada.")
                         st.rerun()
                     except Exception as ex:
@@ -257,7 +257,7 @@ else:
                 if st.button("❌ Rejeitar", key=f"reject_{appr_id}"):
                     try:
                         reason_safe = reject_reason.replace("'", "''") if reject_reason else "Rejeitado manualmente"
-                        execute_query(f"CALL NEXUS_APP.CORE.REJECT_ACTION('{appr_id}', '{USER}', '{reason_safe}')")
+                        execute_query(f"CALL CORE.REJECT_ACTION('{appr_id}', '{USER}', '{reason_safe}')")
                         st.info("Ação rejeitada.")
                         st.rerun()
                     except Exception as ex:
