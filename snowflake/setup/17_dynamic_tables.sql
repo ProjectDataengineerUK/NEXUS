@@ -136,13 +136,13 @@ WITH base AS (
         COALESCE(c.arr,                     0)  AS arr,
         COALESCE(c.total_seats,             0)  AS total_seats,
         COALESCE(c.events_7d,               0)  AS events_7d,
-        COALESCE(c.features_used,           0)  AS features_used,
-        COALESCE(c.sla_breaches_30d,        0)  AS sla_breaches_30d,
-        COALESCE(c.tickets_30d,             0)  AS tickets_30d,
-        COALESCE(c.ai_invocations_30d,      0)  AS ai_invocations_30d,
+        COALESCE(c.distinct_features_used,  0)  AS features_used,
+        COALESCE(c.sla_breaches,            0)  AS sla_breaches_30d,
+        COALESCE(c.total_tickets,           0)  AS tickets_30d,
+        COALESCE(c.agent_invocations_30d,   0)  AS ai_invocations_30d,
         c.usage_trend,
         c.churn_risk_level,
-        COALESCE(c.days_to_renewal,       365)  AS days_to_renewal,
+        COALESCE(DATEDIFF('day', CURRENT_DATE(), c.nearest_renewal_date), 365) AS days_to_renewal,
         CASE WHEN c.lifecycle_stage = 'churned' THEN 1 ELSE 0 END AS is_churned
     FROM MART.CUSTOMER_360 c
 )
