@@ -14,6 +14,13 @@ resource "snowflake_masking_policy" "email" {
   body = "CASE WHEN CURRENT_ROLE() IN ('${var.admin_role}') THEN val ELSE REGEXP_REPLACE(val, '^[^@]+', '****') END"
 
   return_data_type = "VARCHAR"
+
+  # argument.name foi criado como "VAL" (uppercase) — Snowflake normaliza para uppercase
+  # internamente mas o provider Terraform é case-sensitive no state; ignore para evitar
+  # destroy+create em políticas já aplicadas em colunas.
+  lifecycle {
+    ignore_changes = [argument]
+  }
 }
 
 resource "snowflake_masking_policy" "phone" {
@@ -30,6 +37,10 @@ resource "snowflake_masking_policy" "phone" {
   body = "CASE WHEN CURRENT_ROLE() IN ('${var.admin_role}') THEN val ELSE CONCAT('****-****-', RIGHT(REGEXP_REPLACE(val, '[^0-9]', ''), 4)) END"
 
   return_data_type = "VARCHAR"
+
+  lifecycle {
+    ignore_changes = [argument]
+  }
 }
 
 resource "snowflake_masking_policy" "pii_string" {
