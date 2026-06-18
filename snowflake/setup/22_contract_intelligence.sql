@@ -31,7 +31,7 @@ DECLARE
     v_response  VARCHAR;
     v_result    VARIANT;
 BEGIN
-    SELECT content INTO v_content
+    SELECT extracted_text INTO v_content
     FROM NEXUS_APP.CORE.DOCUMENTS
     WHERE document_id = :doc_id
       AND document_type = 'contract';
@@ -95,7 +95,7 @@ CONTRACT TEXT:
         risk_flags         = v_result:risk_flags,
         ai_summary         = v_result:summary::VARCHAR,
         extraction_status  = 'completed',
-        updated_at         = CURRENT_TIMESTAMP()
+        processed_at       = CURRENT_TIMESTAMP()
     WHERE document_id = :doc_id;
 
     RETURN v_result;
@@ -110,7 +110,7 @@ SELECT
     d.document_id,
     d.org_id,
     d.document_name                                        AS contract_name,
-    d.customer_id,
+    d.entity_id                                            AS customer_id,
     c.customer_name,
     d.contract_type,
     d.contract_value_usd,
@@ -132,9 +132,8 @@ SELECT
     TO_CHAR(d.created_at, 'YYYY-MM-DD')                   AS uploaded_at
 FROM NEXUS_APP.CORE.DOCUMENTS d
 LEFT JOIN NEXUS_APP.MART.CUSTOMER_360 c
-       ON d.customer_id = c.customer_id AND d.org_id = c.org_id
-WHERE d.document_type = 'contract'
-  AND d.is_active = TRUE;
+       ON d.entity_id = c.customer_id AND d.org_id = c.org_id
+WHERE d.document_type = 'contract';
 
 
 -- ─── Task: extract clauses for pending contracts (every 4h) ──────────────────
@@ -152,8 +151,7 @@ BEGIN
         FROM NEXUS_APP.CORE.DOCUMENTS
         WHERE document_type    = 'contract'
           AND extraction_status = 'pending'
-          AND content          IS NOT NULL
-          AND is_active        = TRUE
+          AND extracted_text   IS NOT NULL
         ORDER BY created_at
         LIMIT 20
     ) DO
