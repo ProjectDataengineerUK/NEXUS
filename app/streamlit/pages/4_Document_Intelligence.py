@@ -3,13 +3,14 @@ NEXUS AI DataOps — Document Intelligence
 Sprint 3: upload de documentos, chunking, Cortex Search e chat com documentos.
 """
 
+import json
 import uuid
 
 import streamlit as st
 from utils.auth import get_org_id
 from utils.snowflake_client import cortex_complete as _cortex_complete
 from utils.snowflake_client import cortex_search as _cortex_search
-from utils.snowflake_client import get_session, run_query
+from utils.snowflake_client import get_session, run_query, run_sql
 
 st.set_page_config(
     page_title="Document Intelligence · NEXUS",
@@ -254,6 +255,7 @@ elif tab_choice == "📚 Biblioteca":
             d.summary,
             d.document_category,
             d.document_summary            AS ai_summary,
+            TO_JSON(d.extracted_fields)   AS extracted_fields_json,
             d.created_at
         FROM CORE.DOCUMENTS d
         LEFT JOIN CORE.CUSTOMERS c
@@ -261,7 +263,7 @@ elif tab_choice == "📚 Biblioteca":
         LEFT JOIN AI.DOCUMENT_CHUNKS ch
             ON d.document_id = ch.document_id
         WHERE d.org_id = '{ORG_ID}'
-        GROUP BY 1,2,3,4,5,6,8,9,10,11
+        GROUP BY 1,2,3,4,5,6,8,9,10,11,12
         ORDER BY d.created_at DESC
     """)
 
@@ -272,31 +274,49 @@ elif tab_choice == "📚 Biblioteca":
         total_docs   = len(lib_df)
         total_chunks = int(lib_df["CHUNKS"].sum())
         done_docs    = int((lib_df["PROCESSING_STATUS"] == "completed").sum())
+        pending_docs = int((lib_df["PROCESSING_STATUS"] == "pending").sum())
 
-        m1, m2, m3 = st.columns(3)
+        m1, m2, m3, m4 = st.columns(4)
         m1.metric("Documentos", total_docs)
-        m2.metric("Indexados", done_docs)
-        m3.metric("Chunks pesquisáveis", total_chunks)
+        m2.metric("Processados", done_docs)
+        m3.metric("Pendentes", pending_docs)
+        m4.metric("Chunks pesquisáveis", total_chunks)
         st.divider()
 
-        # Botão de enriquecimento em lote
+        # Botão de enriquecimento em lote (documentos sem category)
         unenriched = int(((lib_df["DOCUMENT_CATEGORY"].isna()) | (lib_df["DOCUMENT_CATEGORY"] == "")).sum())
         if unenriched > 0:
-            if st.button(f"🤖 Enriquecer {unenriched} doc(s) com AI_CLASSIFY + AI_SUMMARIZE"):
+            if st.button(f"Enriquecer {unenriched} doc(s) com AI_CLASSIFY + AI_SUMMARIZE"):
                 with st.spinner("Classificando e resumindo documentos…"):
                     try:
-                        session = get_session()
-                        session.sql(f"CALL CORE.ENRICH_DOCUMENTS_WITH_AI('{ORG_ID}')").collect()
-                        st.success("Enriquecimento concluído.")
+                        result = run_sql(f"CALL CORE.ENRICH_DOCUMENTS_WITH_AI('{ORG_ID}')")
+                        msg = result[0][0] if result else "sem retorno"
+                        st.success(f"Enriquecimento concluído: {msg}")
+                        st.rerun()
+                    except Exception as ex:
+                        st.error(f"Erro: {ex}")
+
+        # Botão de processamento em lote de pendentes
+        if pending_docs > 0:
+            if st.button(f"Processar {pending_docs} doc(s) pendente(s)"):
+                with st.spinner("Processando documentos pendentes…"):
+                    try:
+                        result = run_sql(
+                            f"CALL AI.SP_PROCESS_PENDING_DOCUMENTS('{ORG_ID}')"
+                        )
+                        msg = result[0][0] if result else "sem retorno"
+                        st.success(f"Processamento concluído: {msg}")
                         st.rerun()
                     except Exception as ex:
                         st.error(f"Erro: {ex}")
 
         for _, doc in lib_df.iterrows():
-            status_icon = {"completed": "✅", "pending": "⏳", "failed": "❌"}.get(
-                doc["PROCESSING_STATUS"], "❓"
+            doc_id      = doc["DOCUMENT_ID"]
+            doc_status  = doc["PROCESSING_STATUS"]
+            status_icon = {"completed": "✅", "pending": "⏳", "processing": "🔄", "failed": "❌"}.get(
+                doc_status, "❓"
             )
-            category_badge = f" · 🏷️ `{doc['DOCUMENT_CATEGORY']}`" if doc.get("DOCUMENT_CATEGORY") else ""
+            category_badge = f" · `{doc['DOCUMENT_CATEGORY']}`" if doc.get("DOCUMENT_CATEGORY") else ""
             with st.expander(
                 f"{status_icon} **{doc['DOCUMENT_NAME']}** — `{doc['DOCUMENT_TYPE']}`"
                 f"{category_badge} · {doc['CHUNKS']} chunks"
@@ -305,26 +325,72 @@ elif tab_choice == "📚 Biblioteca":
                 with col1:
                     st.markdown(f"**Cliente/Entidade:** {doc['ENTITY_NAME']}")
                     st.markdown(f"**Tipo de entidade:** {doc['ENTITY_TYPE']}")
-                    st.markdown(f"**Status:** {doc['PROCESSING_STATUS']}")
-                    if doc.get("AI_SUMMARY"):
-                        st.markdown(f"**Sumário AI:**  \n_{doc['AI_SUMMARY']}_")
-                    elif doc.get("SUMMARY"):
-                        st.markdown(f"**Sumário:**  \n_{doc['SUMMARY']}_")
+                    st.markdown(f"**Status:** {doc_status}")
+
+                    # Sumário: prefere AI_SUMMARY (gerado por CORTEX.SUMMARIZE)
+                    ai_summary_val = doc.get("AI_SUMMARY") or ""
+                    summary_val    = doc.get("SUMMARY") or ""
+                    if ai_summary_val:
+                        with st.expander("Sumário executivo (Cortex AI)", expanded=True):
+                            st.markdown(f"_{ai_summary_val}_")
+                    elif summary_val:
+                        with st.expander("Sumário", expanded=True):
+                            st.markdown(f"_{summary_val}_")
+
+                    # Campos estruturados extraídos via CORTEX.COMPLETE
+                    raw_fields = doc.get("EXTRACTED_FIELDS_JSON") or ""
+                    if raw_fields and raw_fields not in ("null", "NULL", ""):
+                        try:
+                            parsed_fields = json.loads(raw_fields)
+                            with st.expander("Campos extraídos (Cortex AI)", expanded=False):
+                                st.json(parsed_fields)
+                        except (json.JSONDecodeError, TypeError):
+                            pass  # VARIANT inválido — não exibe silenciosamente
+
                 with col2:
                     st.caption(f"Criado em: {str(doc['CREATED_AT'])[:10]}")
-                    if st.button("🔍 Pesquisar neste doc", key=f"lib_search_{doc['DOCUMENT_ID']}"):
-                        st.session_state["lib_filter_doc"] = doc["DOCUMENT_ID"]
-                        st.info("Selecione 'Chat com Documentos' e filtre por este documento.")
-                    if not doc.get("DOCUMENT_CATEGORY"):
-                        if st.button("🤖 Classificar", key=f"enrich_{doc['DOCUMENT_ID']}"):
+
+                    # Botão: processar/re-processar documento individualmente
+                    btn_label = (
+                        "Processar documento"
+                        if doc_status in ("pending", "failed")
+                        else "Re-processar"
+                    )
+                    if st.button(btn_label, key=f"process_{doc_id}"):
+                        with st.spinner(f"Processando {doc['DOCUMENT_NAME']}…"):
                             try:
-                                session = get_session()
-                                session.sql(f"""
-                                    CALL CORE.ENRICH_DOCUMENTS_WITH_AI('{ORG_ID}')
-                                """).collect()
-                                st.rerun()
+                                result = run_sql(
+                                    f"CALL AI.SP_PROCESS_DOCUMENT('{doc_id}', '{ORG_ID}')"
+                                )
+                                msg = result[0][0] if result else "sem retorno"
+                                if msg.startswith("OK"):
+                                    st.success(msg)
+                                    st.rerun()
+                                else:
+                                    st.error(f"Falha: {msg}")
                             except Exception as ex:
                                 st.error(str(ex))
+
+                    if st.button("Pesquisar neste doc", key=f"lib_search_{doc_id}"):
+                        st.session_state["lib_filter_doc"] = doc_id
+                        st.info("Selecione 'Chat com Documentos' e filtre por este documento.")
+
+                    # Botão de classificação rápida (sem re-processar tudo)
+                    if not doc.get("DOCUMENT_CATEGORY"):
+                        if st.button("Classificar", key=f"enrich_{doc_id}"):
+                            with st.spinner("Classificando…"):
+                                try:
+                                    result = run_sql(
+                                        f"CALL AI.SP_PROCESS_DOCUMENT('{doc_id}', '{ORG_ID}')"
+                                    )
+                                    msg = result[0][0] if result else "sem retorno"
+                                    if msg.startswith("OK"):
+                                        st.success("Classificado.")
+                                        st.rerun()
+                                    else:
+                                        st.error(f"Falha: {msg}")
+                                except Exception as ex:
+                                    st.error(str(ex))
 
 
 # ─────────────────────────────────────────────────────────────────────────────

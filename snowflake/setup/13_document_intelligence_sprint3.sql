@@ -183,6 +183,231 @@ GRANT USAGE ON PROCEDURE NEXUS_APP.CORE.SP_PROCESS_DOCUMENT(
 ) TO ROLE NEXUS_ADMIN;
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- Coluna extracted_fields em CORE.DOCUMENTS (se ainda não existir)
+-- ─────────────────────────────────────────────────────────────────────────────
+
+ALTER TABLE NEXUS_APP.CORE.DOCUMENTS ADD COLUMN IF NOT EXISTS extracted_fields VARIANT;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- SP principal de enriquecimento Cortex AI por documento
+-- Executa: CLASSIFY_TEXT → SUMMARIZE → COMPLETE (extração estruturada)
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE PROCEDURE NEXUS_APP.AI.SP_PROCESS_DOCUMENT(
+    p_document_id   VARCHAR,
+    p_org_id        VARCHAR
+)
+RETURNS VARCHAR
+LANGUAGE PYTHON
+RUNTIME_VERSION = '3.11'
+PACKAGES = ('snowflake-snowpark-python')
+HANDLER = 'process_document'
+EXECUTE AS CALLER
+AS $$
+import json
+
+# Tipos de documento que recebem extração estruturada de campos
+EXTRACTABLE_TYPES = {'contract', 'sla', 'amendment'}
+
+# Labels aceitos pela classificação
+CLASSIFICATION_LABELS = [
+    'contract', 'sla', 'amendment', 'invoice', 'proposal', 'nda', 'other'
+]
+
+EXTRACTION_PROMPT_TEMPLATE = """Você é um especialista em análise de contratos corporativos.
+Analise o documento abaixo e extraia as informações no formato JSON especificado.
+Responda APENAS com o JSON, sem texto adicional, sem markdown, sem blocos de código.
+
+Formato exigido:
+{{
+  "effective_date": "YYYY-MM-DD ou null",
+  "expiration_date": "YYYY-MM-DD ou null",
+  "total_value": "valor numérico como string ou null",
+  "total_value_currency": "USD/BRL/EUR ou null",
+  "penalty_clause": "descrição resumida ou null",
+  "auto_renewal": true/false/null,
+  "auto_renewal_notice_days": número ou null,
+  "governing_law": "jurisdição/país ou null",
+  "parties": ["lista de partes envolvidas"],
+  "payment_terms": "descrição ou null",
+  "sla_uptime_pct": número ou null,
+  "p1_response_hours": número ou null,
+  "p1_resolution_hours": número ou null
+}}
+
+DOCUMENTO:
+{text}"""
+
+
+def _safe_str(value, max_len: int = 100000) -> str:
+    """Trunca e escapa aspas simples para interpolação SQL segura."""
+    if value is None:
+        return ''
+    return str(value)[:max_len].replace("'", "''")
+
+
+def process_document(session, p_document_id: str, p_org_id: str) -> str:
+    try:
+        # ── 0. Carrega metadados e texto do documento ──────────────────────────
+        meta_rows = session.sql(f"""
+            SELECT document_id, document_type, extracted_text
+            FROM NEXUS_APP.CORE.DOCUMENTS
+            WHERE document_id = '{p_document_id}'
+              AND org_id = '{p_org_id}'
+            LIMIT 1
+        """).collect()
+
+        if not meta_rows:
+            return f"ERROR: document_id '{p_document_id}' not found for org '{p_org_id}'"
+
+        meta = meta_rows[0]
+        existing_type = (meta['DOCUMENT_TYPE'] or '').lower()
+        raw_text = meta['EXTRACTED_TEXT'] or ''
+
+        # Se não há texto extraído, tenta montar a partir dos chunks
+        if not raw_text:
+            chunk_rows = session.sql(f"""
+                SELECT chunk_text
+                FROM NEXUS_APP.AI.DOCUMENT_CHUNKS
+                WHERE document_id = '{p_document_id}'
+                ORDER BY chunk_index
+            """).collect()
+            raw_text = ' '.join(r['CHUNK_TEXT'] for r in chunk_rows if r['CHUNK_TEXT'])
+
+        if not raw_text:
+            return f"ERROR: no text available for document '{p_document_id}'"
+
+        steps_done = []
+
+        # ── 1. CLASSIFY_TEXT ──────────────────────────────────────────────────
+        classify_text = _safe_str(raw_text, 2000)
+        labels_sql = "ARRAY_CONSTRUCT(" + ", ".join(f"'{l}'" for l in CLASSIFICATION_LABELS) + ")"
+
+        classify_rows = session.sql(f"""
+            SELECT SNOWFLAKE.CORTEX.CLASSIFY_TEXT(
+                '{classify_text}',
+                {labels_sql}
+            ) AS result
+        """).collect()
+
+        classified_label = existing_type  # fallback
+        classified_score = 0.0
+
+        if classify_rows and classify_rows[0]['RESULT'] is not None:
+            raw_result = classify_rows[0]['RESULT']
+            result_dict = json.loads(raw_result) if isinstance(raw_result, str) else raw_result
+            classified_label = (result_dict.get('label') or existing_type).lower()
+            classified_score = float(result_dict.get('score') or 0.0)
+
+        steps_done.append(f"classify={classified_label}({classified_score:.2f})")
+
+        # ── 2. SUMMARIZE ──────────────────────────────────────────────────────
+        # CORTEX.SUMMARIZE aceita até ~100K chars; usa texto completo truncado
+        summarize_text = _safe_str(raw_text, 80000)
+        summarize_rows = session.sql(f"""
+            SELECT SNOWFLAKE.CORTEX.SUMMARIZE('{summarize_text}') AS summary
+        """).collect()
+
+        ai_summary = ''
+        if summarize_rows and summarize_rows[0]['SUMMARY']:
+            ai_summary = summarize_rows[0]['SUMMARY']
+
+        steps_done.append('summarize=ok' if ai_summary else 'summarize=empty')
+
+        # ── 3. COMPLETE — extração estruturada (apenas contract/sla/amendment) ─
+        extracted_fields_json = None
+        effective_doc_type = classified_label if classified_score >= 0.6 else existing_type
+
+        if effective_doc_type in EXTRACTABLE_TYPES:
+            extract_text = _safe_str(raw_text, 12000)
+            prompt = _safe_str(
+                EXTRACTION_PROMPT_TEMPLATE.format(text=raw_text[:12000]),
+                20000
+            )
+            complete_rows = session.sql(f"""
+                SELECT SNOWFLAKE.CORTEX.COMPLETE('mistral-large2', '{prompt}') AS raw_json
+            """).collect()
+
+            if complete_rows and complete_rows[0]['RAW_JSON']:
+                raw_json_str = complete_rows[0]['RAW_JSON'].strip()
+                # Remove possíveis blocos markdown do modelo
+                if raw_json_str.startswith('```'):
+                    lines = raw_json_str.splitlines()
+                    raw_json_str = '\n'.join(
+                        l for l in lines
+                        if not l.startswith('```')
+                    ).strip()
+
+                # Valida e persiste via TRY_PARSE_JSON para garantir VARIANT válido
+                safe_json_str = raw_json_str.replace("'", "''")
+                parse_check = session.sql(f"""
+                    SELECT TRY_PARSE_JSON('{safe_json_str}') AS parsed
+                """).collect()
+
+                if parse_check and parse_check[0]['PARSED'] is not None:
+                    extracted_fields_json = safe_json_str
+                    steps_done.append('extract=ok')
+                else:
+                    steps_done.append('extract=parse_failed')
+            else:
+                steps_done.append('extract=no_response')
+        else:
+            steps_done.append(f'extract=skipped(type={effective_doc_type})')
+
+        # ── 4. Persiste todos os campos enriquecidos ──────────────────────────
+        safe_summary = _safe_str(ai_summary)
+        safe_label   = classified_label.replace("'", "''")
+
+        # Monta SET de extracted_fields condicionalmente
+        extracted_fields_set = (
+            f"extracted_fields = TRY_PARSE_JSON('{extracted_fields_json}'),"
+            if extracted_fields_json is not None
+            else ""
+        )
+
+        # Atualiza document_type apenas se score de confiança >= 0.6
+        doc_type_set = (
+            f"document_type = '{safe_label}',"
+            if classified_score >= 0.6
+            else ""
+        )
+
+        session.sql(f"""
+            UPDATE NEXUS_APP.CORE.DOCUMENTS
+            SET
+                {doc_type_set}
+                document_category = '{safe_label}',
+                summary           = '{safe_summary}',
+                {extracted_fields_set}
+                processing_status = 'completed',
+                processed_at      = CURRENT_TIMESTAMP()
+            WHERE document_id = '{p_document_id}'
+              AND org_id = '{p_org_id}'
+        """).collect()
+
+        return "OK: " + " | ".join(steps_done)
+
+    except Exception as exc:
+        # Marca como falha sem sobrescrever texto já extraído
+        try:
+            session.sql(f"""
+                UPDATE NEXUS_APP.CORE.DOCUMENTS
+                SET processing_status = 'failed',
+                    processed_at      = CURRENT_TIMESTAMP()
+                WHERE document_id = '{p_document_id}'
+                  AND org_id = '{p_org_id}'
+            """).collect()
+        except Exception:
+            pass
+        return f"ERROR: {str(exc)}"
+$$;
+
+GRANT USAGE ON PROCEDURE NEXUS_APP.AI.SP_PROCESS_DOCUMENT(VARCHAR, VARCHAR)
+    TO ROLE NEXUS_ADMIN;
+GRANT USAGE ON PROCEDURE NEXUS_APP.AI.SP_PROCESS_DOCUMENT(VARCHAR, VARCHAR)
+    TO ROLE NEXUS_DATA_ENGINEER;
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- Cortex Search Service sobre AI.DOCUMENT_CHUNKS
 -- ─────────────────────────────────────────────────────────────────────────────
 
