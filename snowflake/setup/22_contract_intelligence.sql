@@ -109,7 +109,7 @@ CREATE OR REPLACE VIEW NEXUS_APP.AI.V_CONTRACT_INTELLIGENCE AS
 SELECT
     d.document_id,
     d.org_id,
-    d.title                                                AS contract_name,
+    d.document_name                                        AS contract_name,
     d.customer_id,
     c.customer_name,
     d.contract_type,
