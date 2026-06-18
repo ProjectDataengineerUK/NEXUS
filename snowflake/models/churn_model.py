@@ -174,7 +174,7 @@ from snowflake.models.recommendation_model import generate_recommendations  # no
 
 def run_churn_pipeline(session: Session, mode: str = "full") -> str:
     """
-    Ponto de entrada para CALL NEXUS_APP.CORE.SP_RUN_CHURN_PIPELINE(mode).
+    Ponto de entrada para CALL CORE.SP_RUN_CHURN_PIPELINE(mode).
     mode = 'score'  → apenas scoring
     mode = 'recs'   → apenas recomendações (requer scores existentes)
     mode = 'full'   → score + recomendações
