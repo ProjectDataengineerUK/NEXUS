@@ -117,24 +117,16 @@ def run(session):
             results.append(f"{org_id}:EMPTY_RESPONSE")
             continue
 
-        # 5. Persistir em AI.EXECUTIVE_BRIEFINGS
-        session.sql(f"""
+        # 5. Persistir em AI.EXECUTIVE_BRIEFINGS (parametrizado — evita $$ aninhado)
+        session.sql("""
             INSERT INTO AI.EXECUTIVE_BRIEFINGS
                 (org_id, briefing_date, briefing_type, content, kpi_snapshot,
                  model_used, tokens_used, latency_ms)
-            VALUES (
-                '{org_id}',
-                CURRENT_DATE(),
-                'DAILY',
-                $${briefing_text.replace('$$', '\\$\\$')}$$,
-                PARSE_JSON('{kpi_str.replace("'", "''")}'),
-                '{model}',
-                0,
-                {latency_ms}
-            )
-        """).collect()
+            VALUES (?, CURRENT_DATE(), 'DAILY', ?, PARSE_JSON(?), ?, 0, ?)
+        """, params=[org_id, briefing_text, kpi_str, model, latency_ms]).collect()
 
-        # 6. Registrar também em AI.RECOMMENDATIONS para exibição na Home
+        # 6. Registrar em AI.RECOMMENDATIONS (escape simples — sem $$ aninhado)
+        brief_safe = briefing_text[:1000].replace("'", "''")
         session.sql(f"""
             MERGE INTO AI.RECOMMENDATIONS AS tgt
             USING (
@@ -144,13 +136,13 @@ def run(session):
                     'briefing'           AS entity_type,
                     'daily_briefing'     AS recommendation_type,
                     'HIGH'               AS priority,
-                    $${briefing_text[:1000].replace('$$', '')}$$ AS recommendation_text,
+                    '{brief_safe}'       AS recommendation_text,
                     CURRENT_TIMESTAMP() + INTERVAL '1 day' AS expires_at
             ) AS src
-            ON tgt.org_id = src.org_id
-               AND tgt.entity_id = src.entity_id
-               AND tgt.recommendation_type = src.recommendation_type
-               AND tgt.expires_at > CURRENT_TIMESTAMP()
+            ON  tgt.org_id               = src.org_id
+            AND tgt.entity_id            = src.entity_id
+            AND tgt.recommendation_type  = src.recommendation_type
+            AND tgt.expires_at           > CURRENT_TIMESTAMP()
             WHEN NOT MATCHED THEN INSERT (
                 org_id, entity_id, entity_type, recommendation_type,
                 priority, recommendation_text, expires_at
@@ -250,21 +242,12 @@ def run(session):
         briefing_text = briefing_rows[0]["BRIEFING_TEXT"] if briefing_rows else ""
 
         if briefing_text:
-            session.sql(f"""
+            session.sql("""
                 INSERT INTO AI.EXECUTIVE_BRIEFINGS
                     (org_id, briefing_date, briefing_type, content, kpi_snapshot,
                      model_used, tokens_used, latency_ms)
-                VALUES (
-                    '{org_id}',
-                    CURRENT_DATE(),
-                    'WEEKLY',
-                    $${briefing_text.replace('$$', '')}$$,
-                    PARSE_JSON('{kpi_str.replace("'", "''")}'),
-                    '{model}',
-                    0,
-                    {latency_ms}
-                )
-            """).collect()
+                VALUES (?, CURRENT_DATE(), 'WEEKLY', ?, PARSE_JSON(?), ?, 0, ?)
+            """, params=[org_id, briefing_text, kpi_str, model, latency_ms]).collect()
             results.append(f"{org_id}:OK")
         else:
             results.append(f"{org_id}:EMPTY")
