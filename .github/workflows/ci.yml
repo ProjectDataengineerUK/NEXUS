@@ -462,14 +462,27 @@ jobs:
           )
 
           if version_exists:
-              # ADD PATCH atualiza o código sem recriar a versão nem tocar no release channel
               cs.execute(f"ALTER APPLICATION PACKAGE {PKG} ADD PATCH FOR VERSION {VSLUG} USING '{STAGE}'")
               print(f"Patch added to existing version {VSLUG}.")
           else:
-              # Primeira criação: ADD VERSION + associar ao canal DEFAULT
               cs.execute(f"ALTER APPLICATION PACKAGE {PKG} ADD VERSION {VSLUG} USING '{STAGE}'")
               silent(f"ALTER APPLICATION PACKAGE {PKG} MODIFY RELEASE CHANNEL DEFAULT ADD VERSION {VSLUG}")
               print(f"Version {VSLUG} created and added to DEFAULT channel.")
+
+          # Recriar a aplicação de teste para re-executar setup_script.sql com o schema atualizado.
+          # ADD PATCH atualiza código mas não re-executa DDL — só DROP+CREATE garante isso em dev.
+          APP = "NEXUS_AI_DATAOPS_TEST"
+          silent(f"DROP APPLICATION IF EXISTS {APP} CASCADE")
+          cs.execute(f"""
+              CREATE APPLICATION {APP}
+                  FROM APPLICATION PACKAGE {PKG}
+                  USING @{PKG}.PUBLIC.APP_STAGE/{VSLUG}
+                  COMMENT = 'Dev test instance — auto-recreated on every deploy'
+          """)
+          # Dar acesso ao role de administração para usar o app no Streamlit
+          silent(f"GRANT APPLICATION ROLE {APP}.NEXUS_ADMIN  TO ROLE ACCOUNTADMIN")
+          silent(f"GRANT APPLICATION ROLE {APP}.NEXUS_ANALYST TO ROLE ACCOUNTADMIN")
+          print(f"App {APP} recreated — setup_script.sql executed with fresh schema.")
 
           print(f"Release {VSLUG} concluída.")
 
