@@ -42,10 +42,6 @@ ALTER TABLE CORE.CUSTOMERS
         SET TAG GOVERNANCE.PII = 'DIRECT';
 
 ALTER TABLE CORE.CUSTOMERS
-    MODIFY COLUMN billing_address
-        SET TAG GOVERNANCE.PII = 'QUASI';
-
-ALTER TABLE CORE.CUSTOMERS
     SET TAG
         GOVERNANCE.DATA_DOMAIN    = 'CUSTOMER',
         GOVERNANCE.RETENTION_DAYS = '2555';
@@ -142,6 +138,6 @@ WHERE t.tag_name = 'PII';
 -- ─── Auto-classification schedule (Snowflake Data Classification) ────────────
 
 -- Inicia classificação automática nas tabelas core
-CALL SYSTEM$CLASSIFY('NEXUS_APP.CORE.CUSTOMERS',  {'auto_tag': true});
-CALL SYSTEM$CLASSIFY('NEXUS_APP.CORE.CONTACTS',   {'auto_tag': true});
-CALL SYSTEM$CLASSIFY('NEXUS_APP.CORE.AUDIT_LOG',  {'auto_tag': true});
+CALL SYSTEM$CLASSIFY('NEXUS_APP.CORE.CUSTOMERS', PARSE_JSON('{"auto_tag": true}'));
+CALL SYSTEM$CLASSIFY('NEXUS_APP.CORE.CONTACTS',  PARSE_JSON('{"auto_tag": true}'));
+CALL SYSTEM$CLASSIFY('NEXUS_APP.CORE.AUDIT_LOG', PARSE_JSON('{"auto_tag": true}'));
