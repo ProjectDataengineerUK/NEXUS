@@ -98,16 +98,21 @@ CREATE TABLE IF NOT EXISTS CORE.PRODUCT_EVENTS (
 );
 
 CREATE TABLE IF NOT EXISTS CORE.DOCUMENTS (
-    document_id       VARCHAR(36)  NOT NULL DEFAULT UUID_STRING(),
-    org_id            VARCHAR(36)  NOT NULL,
-    entity_id         VARCHAR(36),
-    entity_type       VARCHAR(50),
-    document_name     VARCHAR(500) NOT NULL,
-    document_type     VARCHAR(100) NOT NULL DEFAULT 'other',
-    stage_path        VARCHAR(1000),
-    processing_status VARCHAR(50)  DEFAULT 'pending',
-    summary           TEXT,
-    created_at        TIMESTAMP_TZ DEFAULT CURRENT_TIMESTAMP(),
+    document_id        VARCHAR(36)   NOT NULL DEFAULT UUID_STRING(),
+    org_id             VARCHAR(36)   NOT NULL,
+    entity_id          VARCHAR(36),
+    entity_type        VARCHAR(50),
+    document_name      VARCHAR(500)  NOT NULL,
+    document_type      VARCHAR(100)  NOT NULL DEFAULT 'other',
+    stage_path         VARCHAR(1000),
+    processing_status  VARCHAR(50)   DEFAULT 'pending',
+    summary            TEXT,
+    extracted_text     TEXT,
+    document_category  VARCHAR(100),
+    document_summary   TEXT,
+    extracted_fields   VARIANT,
+    created_at         TIMESTAMP_TZ  DEFAULT CURRENT_TIMESTAMP(),
+    processed_at       TIMESTAMP_TZ,
     PRIMARY KEY (document_id)
 );
 
@@ -543,6 +548,177 @@ GROUP BY d.document_id, d.org_id, d.document_name, d.document_type,
          d.processing_status, d.summary, d.created_at;
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- Document AI — SP_PROCESS_DOCUMENT (CLASSIFY + SUMMARIZE + COMPLETE)
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE PROCEDURE AI.SP_PROCESS_DOCUMENT(
+    p_document_id VARCHAR,
+    p_org_id      VARCHAR
+)
+RETURNS VARCHAR
+LANGUAGE PYTHON
+RUNTIME_VERSION = '3.11'
+PACKAGES = ('snowflake-snowpark-python')
+HANDLER = 'process_document'
+EXECUTE AS CALLER
+AS $$
+import json
+
+EXTRACTABLE_TYPES = {'contract', 'sla', 'amendment'}
+CLASSIFICATION_LABELS = ['contract', 'sla', 'amendment', 'invoice', 'proposal', 'nda', 'other']
+
+EXTRACTION_PROMPT = """Analise o documento abaixo e extraia as informações no formato JSON.
+Responda APENAS com o JSON, sem texto adicional.
+
+Formato:
+{{
+  "effective_date": "YYYY-MM-DD ou null",
+  "expiration_date": "YYYY-MM-DD ou null",
+  "total_value": "valor ou null",
+  "total_value_currency": "USD/BRL/EUR ou null",
+  "auto_renewal": true/false/null,
+  "governing_law": "jurisdição ou null",
+  "parties": ["lista de partes"],
+  "payment_terms": "descrição ou null"
+}}
+
+DOCUMENTO:
+{text}"""
+
+
+def _safe(v, n=100000):
+    return (str(v)[:n] if v else '').replace("'", "''")
+
+
+def process_document(session, p_document_id: str, p_org_id: str) -> str:
+    try:
+        rows = session.sql(f"""
+            SELECT document_type, extracted_text FROM CORE.DOCUMENTS
+            WHERE document_id = '{p_document_id}' AND org_id = '{p_org_id}' LIMIT 1
+        """).collect()
+        if not rows:
+            return f"ERROR: document '{p_document_id}' not found"
+
+        doc_type = (rows[0]['DOCUMENT_TYPE'] or '').lower()
+        raw_text = rows[0]['EXTRACTED_TEXT'] or ''
+        if not raw_text:
+            chunks = session.sql(f"""
+                SELECT chunk_text FROM AI.DOCUMENT_CHUNKS
+                WHERE document_id = '{p_document_id}' ORDER BY chunk_index
+            """).collect()
+            raw_text = ' '.join(r['CHUNK_TEXT'] for r in chunks if r['CHUNK_TEXT'])
+        if not raw_text:
+            return f"ERROR: no text for document '{p_document_id}'"
+
+        steps = []
+
+        # 1. CLASSIFY
+        labels_sql = 'ARRAY_CONSTRUCT(' + ', '.join(f"'{l}'" for l in CLASSIFICATION_LABELS) + ')'
+        cr = session.sql(f"""
+            SELECT SNOWFLAKE.CORTEX.CLASSIFY_TEXT('{_safe(raw_text, 2000)}', {labels_sql}) AS r
+        """).collect()
+        label, score = doc_type, 0.0
+        if cr and cr[0]['R']:
+            rd = json.loads(cr[0]['R']) if isinstance(cr[0]['R'], str) else cr[0]['R']
+            label = (rd.get('label') or doc_type).lower()
+            score = float(rd.get('score') or 0.0)
+        steps.append(f'classify={label}({score:.2f})')
+
+        # 2. SUMMARIZE
+        sr = session.sql(f"""
+            SELECT SNOWFLAKE.CORTEX.SUMMARIZE('{_safe(raw_text, 80000)}') AS s
+        """).collect()
+        ai_summary = (sr[0]['S'] or '') if sr else ''
+        steps.append('summarize=ok' if ai_summary else 'summarize=empty')
+
+        # 3. COMPLETE — structured extraction for contracts/SLAs
+        ef_json = None
+        eff_type = label if score >= 0.6 else doc_type
+        if eff_type in EXTRACTABLE_TYPES:
+            prompt = _safe(EXTRACTION_PROMPT.format(text=raw_text[:12000]), 20000)
+            cr2 = session.sql(f"""
+                SELECT SNOWFLAKE.CORTEX.COMPLETE('mistral-large2', '{prompt}') AS j
+            """).collect()
+            if cr2 and cr2[0]['J']:
+                raw_j = cr2[0]['J'].strip().strip('```').strip()
+                safe_j = raw_j.replace("'", "''")
+                ok = session.sql(f"SELECT TRY_PARSE_JSON('{safe_j}') AS p").collect()
+                if ok and ok[0]['P'] is not None:
+                    ef_json = safe_j
+                    steps.append('extract=ok')
+                else:
+                    steps.append('extract=parse_failed')
+            else:
+                steps.append('extract=no_response')
+        else:
+            steps.append(f'extract=skipped({eff_type})')
+
+        # 4. Persist
+        safe_sum  = _safe(ai_summary)
+        safe_lbl  = label.replace("'", "''")
+        doc_type_set = f"document_type = '{safe_lbl}'," if score >= 0.6 else ''
+        ef_set = f"extracted_fields = TRY_PARSE_JSON('{ef_json}')," if ef_json else ''
+
+        session.sql(f"""
+            UPDATE CORE.DOCUMENTS SET
+                {doc_type_set}
+                document_category = '{safe_lbl}',
+                document_summary  = '{safe_sum}',
+                summary           = '{safe_sum}',
+                {ef_set}
+                processing_status = 'completed',
+                processed_at      = CURRENT_TIMESTAMP()
+            WHERE document_id = '{p_document_id}' AND org_id = '{p_org_id}'
+        """).collect()
+
+        return 'OK: ' + ' | '.join(steps)
+
+    except Exception as e:
+        try:
+            session.sql(f"""
+                UPDATE CORE.DOCUMENTS SET processing_status = 'failed',
+                    processed_at = CURRENT_TIMESTAMP()
+                WHERE document_id = '{p_document_id}' AND org_id = '{p_org_id}'
+            """).collect()
+        except Exception:
+            pass
+        return f'ERROR: {e}'
+$$;
+
+CREATE OR REPLACE PROCEDURE CORE.ENRICH_DOCUMENTS_WITH_AI(p_org_id VARCHAR)
+RETURNS VARCHAR
+LANGUAGE PYTHON
+RUNTIME_VERSION = '3.11'
+PACKAGES = ('snowflake-snowpark-python')
+HANDLER = 'run'
+EXECUTE AS CALLER
+AS $$
+def run(session, p_org_id: str) -> str:
+    org_filter = '' if p_org_id == 'ALL' else f"AND org_id = '{p_org_id}'"
+    rows = session.sql(f"""
+        SELECT document_id, org_id FROM CORE.DOCUMENTS
+        WHERE processing_status IN ('pending', 'completed')
+          AND (extracted_text IS NOT NULL OR document_id IN (
+              SELECT DISTINCT document_id FROM AI.DOCUMENT_CHUNKS
+          ))
+          AND (document_category IS NULL OR document_category = '')
+          {org_filter}
+        LIMIT 50
+    """).collect()
+
+    ok, fail = 0, 0
+    for r in rows:
+        res = session.sql(f"""
+            CALL AI.SP_PROCESS_DOCUMENT('{r['DOCUMENT_ID']}', '{r['ORG_ID']}')
+        """).collect()
+        if res and str(res[0][0]).startswith('OK'):
+            ok += 1
+        else:
+            fail += 1
+    return f'OK: {ok} enriched, {fail} failed'
+$$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- Dynamic Tables — MART e AI
 -- Refresh declarativo: Snowflake recalcula cada DT automaticamente.
 -- Requer que NEXUS_COMPUTE_WH exista no account do consumer.
@@ -747,6 +923,14 @@ GRANT SELECT ON TABLE  CORE.CONTRACTS              TO APPLICATION ROLE NEXUS_ANA
 GRANT ALL    ON TABLE  CORE.CONTRACTS              TO APPLICATION ROLE NEXUS_ADMIN;
 GRANT ALL    ON TABLE  CORE.APPROVAL_QUEUE          TO APPLICATION ROLE NEXUS_ADMIN;
 GRANT ALL    ON TABLE  AI.RECOMMENDATIONS           TO APPLICATION ROLE NEXUS_ANALYST;
+
+-- Document AI procedures
+GRANT USAGE ON PROCEDURE AI.SP_PROCESS_DOCUMENT(VARCHAR, VARCHAR)
+    TO APPLICATION ROLE NEXUS_ADMIN;
+GRANT USAGE ON PROCEDURE AI.SP_PROCESS_DOCUMENT(VARCHAR, VARCHAR)
+    TO APPLICATION ROLE NEXUS_ANALYST;
+GRANT USAGE ON PROCEDURE CORE.ENRICH_DOCUMENTS_WITH_AI(VARCHAR)
+    TO APPLICATION ROLE NEXUS_ADMIN;
 
 -- Dynamic Tables
 GRANT SELECT ON DYNAMIC TABLE MART.DT_CUSTOMER_HEALTH      TO APPLICATION ROLE NEXUS_VIEWER;

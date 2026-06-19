@@ -167,7 +167,7 @@ def train_and_score(session: Session) -> str:
     return f"OK: {inserted} clientes pontuados — modelo {MODEL_VERSION}"
 
 
-from snowflake.models.recommendation_model import generate_recommendations  # noqa: E402, I001
+from recommendation_model import generate_recommendations
 
 
 # ── Entry point como Stored Procedure ────────────────────────────────────────
