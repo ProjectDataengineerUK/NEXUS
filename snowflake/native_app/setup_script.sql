@@ -866,6 +866,30 @@ FROM CORE.TICKETS
 GROUP BY org_id;
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- Cortex Search Service — AI.DOC_SEARCH
+-- Semantic search over document chunks (used by AI Chat + Document Intelligence)
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE CORTEX SEARCH SERVICE AI.DOC_SEARCH
+    ON chunk_text
+    ATTRIBUTES org_id, document_id, document_name, document_type
+    WAREHOUSE = NEXUS_COMPUTE_WH
+    TARGET_LAG = '1 hour'
+    COMMENT = 'Semantic search sobre chunks de documentos NEXUS — contratos, relatórios, manuais'
+AS (
+    SELECT
+        chunk_id,
+        org_id,
+        document_id,
+        document_name,
+        document_type,
+        chunk_text,
+        chunk_index,
+        COALESCE(section_title, '') AS section_title
+    FROM AI.DOCUMENT_CHUNKS
+);
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- Grants para Application Roles
 -- ─────────────────────────────────────────────────────────────────────────────
 
@@ -923,6 +947,11 @@ GRANT SELECT ON TABLE  CORE.CONTRACTS              TO APPLICATION ROLE NEXUS_ANA
 GRANT ALL    ON TABLE  CORE.CONTRACTS              TO APPLICATION ROLE NEXUS_ADMIN;
 GRANT ALL    ON TABLE  CORE.APPROVAL_QUEUE          TO APPLICATION ROLE NEXUS_ADMIN;
 GRANT ALL    ON TABLE  AI.RECOMMENDATIONS           TO APPLICATION ROLE NEXUS_ANALYST;
+
+-- Cortex Search Services
+GRANT USAGE ON CORTEX SEARCH SERVICE AI.DOC_SEARCH TO APPLICATION ROLE NEXUS_ADMIN;
+GRANT USAGE ON CORTEX SEARCH SERVICE AI.DOC_SEARCH TO APPLICATION ROLE NEXUS_ANALYST;
+GRANT USAGE ON CORTEX SEARCH SERVICE AI.DOC_SEARCH TO APPLICATION ROLE NEXUS_VIEWER;
 
 -- Document AI procedures
 GRANT USAGE ON PROCEDURE AI.SP_PROCESS_DOCUMENT(VARCHAR, VARCHAR)
