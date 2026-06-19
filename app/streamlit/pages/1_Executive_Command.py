@@ -20,37 +20,33 @@ st.divider()
 
 rev_df = run_query(f"""
     SELECT
-        SUM(arr)                                                    AS total_arr,
-        SUM(mrr)                                                    AS total_mrr,
-        COUNT(*)                                                    AS total_customers,
-        COUNT(CASE WHEN lifecycle_stage = 'active'  THEN 1 END)    AS active_customers,
-        COUNT(CASE WHEN lifecycle_stage = 'at_risk' THEN 1 END)    AS at_risk_customers,
-        COUNT(CASE WHEN lifecycle_stage = 'churned' THEN 1 END)    AS churned_customers,
-        ROUND(AVG(nps_score), 1)                                   AS avg_nps,
-        SUM(CASE WHEN lifecycle_stage IN ('active','at_risk') AND contract_end_date <= DATEADD('month',90,CURRENT_DATE()) THEN arr ELSE 0 END) AS renewal_90d
-    FROM CORE.CUSTOMERS
+        total_arr, total_mrr, customer_count,
+        active_count, at_risk_count, churned_count,
+        avg_nps, arr_at_risk, renewal_90d_arr,
+        avg_health_score
+    FROM MART.DT_EXECUTIVE_KPIS
     WHERE org_id = '{ORG_ID}'
 """)
 
-r = rev_df.iloc[0]
+r = rev_df.iloc[0] if not rev_df.empty else {}
 
 c1, c2, c3, c4 = st.columns(4)
 with c1:
-    arr = r["TOTAL_ARR"] or 0
-    mrr = r["TOTAL_MRR"] or 0
+    arr = float(r.get("TOTAL_ARR") or 0)
+    mrr = float(r.get("TOTAL_MRR") or 0)
     st.metric("ARR Total", f"${arr / 1_000_000:.2f}M")
     st.metric("MRR Total", f"${mrr / 1_000:.0f}K")
 
 with c2:
-    st.metric("Clientes Ativos",   int(r["ACTIVE_CUSTOMERS"] or 0))
-    st.metric("Clientes em Risco", int(r["AT_RISK_CUSTOMERS"] or 0), delta_color="inverse")
+    st.metric("Clientes Ativos",   int(r.get("ACTIVE_COUNT") or 0))
+    st.metric("Clientes em Risco", int(r.get("AT_RISK_COUNT") or 0), delta_color="inverse")
 
 with c3:
-    st.metric("NPS Médio",   f"{r['AVG_NPS'] or 0:.0f}")
-    st.metric("Churn YTD",   int(r["CHURNED_CUSTOMERS"] or 0), delta_color="inverse")
+    st.metric("NPS Médio",    f"{float(r.get('AVG_NPS') or 0):.0f}")
+    st.metric("Churn YTD",    int(r.get("CHURNED_COUNT") or 0), delta_color="inverse")
 
 with c4:
-    renewal = r["RENEWAL_90D"] or 0
+    renewal = float(r.get("RENEWAL_90D_ARR") or 0)
     st.metric("Renovações em 90 dias", f"${renewal / 1_000:.0f}K")
 
 st.divider()
@@ -63,28 +59,16 @@ with col_risk:
     st.subheader("🔴 Top Riscos")
     risk_df = run_query(f"""
         SELECT
-            c.name                          AS customer,
-            c.segment,
-            cs.churn_probability            AS churn_prob,
-            cs.expected_revenue_at_risk     AS arr_risk,
-            cs.recommended_action           AS action,
-            t.open_tickets
-        FROM AI.CHURN_SCORES cs
-        JOIN CORE.CUSTOMERS c
-            ON cs.customer_id = c.customer_id AND c.org_id = cs.org_id
-        LEFT JOIN (
-            SELECT customer_id, COUNT(*) AS open_tickets
-            FROM CORE.TICKETS
-            WHERE org_id = '{ORG_ID}' AND status = 'open'
-            GROUP BY customer_id
-        ) t ON cs.customer_id = t.customer_id
-        WHERE cs.org_id = '{ORG_ID}'
-          AND cs.risk_level = 'HIGH'
-          AND cs.scored_at = (
-              SELECT MAX(scored_at) FROM AI.CHURN_SCORES
-              WHERE org_id = '{ORG_ID}' AND customer_id = cs.customer_id
-          )
-        ORDER BY cs.churn_probability DESC
+            dth.customer_name               AS customer,
+            dth.segment,
+            dth.churn_probability           AS churn_prob,
+            dth.expected_revenue_at_risk    AS arr_risk,
+            dth.churn_recommended_action    AS action,
+            dth.open_tickets
+        FROM MART.DT_CUSTOMER_HEALTH dth
+        WHERE dth.org_id = '{ORG_ID}'
+          AND dth.churn_risk_level = 'HIGH'
+        ORDER BY dth.churn_probability DESC
     """)
 
     for _, r in risk_df.iterrows():
@@ -164,17 +148,13 @@ cont_df = run_query(f"""
         co.contract_value,
         co.end_date,
         co.auto_renewal,
-        cs.risk_level           AS churn_risk,
+        dth.churn_risk_level    AS churn_risk,
         DATEDIFF('day', CURRENT_DATE(), co.end_date) AS days_to_renewal
     FROM CORE.CONTRACTS co
     JOIN CORE.CUSTOMERS c
         ON co.customer_id = c.customer_id AND c.org_id = co.org_id
-    LEFT JOIN AI.CHURN_SCORES cs
-        ON co.customer_id = cs.customer_id AND cs.org_id = co.org_id
-        AND cs.scored_at = (
-            SELECT MAX(scored_at) FROM AI.CHURN_SCORES
-            WHERE org_id = '{ORG_ID}' AND customer_id = co.customer_id
-        )
+    LEFT JOIN MART.DT_CUSTOMER_HEALTH dth
+        ON co.customer_id = dth.customer_id AND co.org_id = dth.org_id
     WHERE co.org_id = '{ORG_ID}'
       AND co.status = 'active'
       AND co.end_date <= DATEADD('day', 180, CURRENT_DATE())

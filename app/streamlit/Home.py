@@ -44,37 +44,22 @@ st.caption("Visão executiva em tempo real · Última atualização: agora")
 st.divider()
 
 
-# ─── KPIs críticos ──────────────────────────────────────────────────────────
+# ─── KPIs críticos — via Dynamic Tables (pre-computed, refresh automático) ───
 
-kpi_df = run_query(f"""
+exec_df = run_query(f"""
     SELECT
-        COUNT(*)                                                AS total_customers,
-        SUM(arr)                                               AS total_arr,
-        SUM(CASE WHEN lifecycle_stage = 'at_risk' THEN arr ELSE 0 END) AS arr_at_risk,
-        COUNT(CASE WHEN lifecycle_stage = 'at_risk' THEN 1 END)        AS customers_at_risk,
-        ROUND(AVG(nps_score), 1)                               AS avg_nps
-    FROM CORE.CUSTOMERS
+        customer_count, active_count, at_risk_count,
+        total_arr, arr_at_risk, avg_nps,
+        open_recommendations, total_expected_impact_usd,
+        avg_health_score
+    FROM MART.DT_EXECUTIVE_KPIS
     WHERE org_id = '{ORG_ID}'
-      AND lifecycle_stage != 'churned'
 """)
 
-churn_df = run_query(f"""
-    SELECT
-        COUNT(CASE WHEN risk_level = 'HIGH' THEN 1 END)   AS high_risk_count,
-        SUM(CASE WHEN risk_level = 'HIGH' THEN expected_revenue_at_risk ELSE 0 END) AS high_risk_arr
-    FROM AI.CHURN_SCORES cs
-    WHERE cs.org_id = '{ORG_ID}'
-      AND scored_at = (
-          SELECT MAX(scored_at) FROM AI.CHURN_SCORES
-          WHERE org_id = '{ORG_ID}' AND customer_id = cs.customer_id
-      )
-""")
-
-open_tickets_df = run_query(f"""
-    SELECT COUNT(*) AS open_tickets,
-           COUNT(CASE WHEN priority = 'urgent' THEN 1 END) AS urgent_tickets
-    FROM CORE.TICKETS
-    WHERE org_id = '{ORG_ID}' AND status = 'open'
+support_df = run_query(f"""
+    SELECT open_tickets, critical_tickets
+    FROM AI.DT_SUPPORT_INTELLIGENCE
+    WHERE org_id = '{ORG_ID}'
 """)
 
 rec_df = run_query(f"""
@@ -84,49 +69,42 @@ rec_df = run_query(f"""
     WHERE org_id = '{ORG_ID}' AND status = 'pending' AND is_active = TRUE
 """)
 
-row = kpi_df.iloc[0]
-churn_row = churn_df.iloc[0]
-ticket_row = open_tickets_df.iloc[0]
-rec_row = rec_df.iloc[0]
+exec_row   = exec_df.iloc[0]   if not exec_df.empty   else {}
+supp_row   = support_df.iloc[0] if not support_df.empty else {}
+rec_row    = rec_df.iloc[0]
 
 col1, col2, col3, col4, col5 = st.columns(5)
 
 with col1:
-    total_arr = row["TOTAL_ARR"] or 0
+    total_arr = float(exec_row.get("TOTAL_ARR") or 0)
     st.metric("ARR Total", f"${total_arr / 1_000_000:.1f}M")
 
 with col2:
-    arr_at_risk = row["ARR_AT_RISK"] or 0
-    customers_at_risk = int(row["CUSTOMERS_AT_RISK"] or 0)
+    arr_at_risk = float(exec_row.get("ARR_AT_RISK") or 0)
+    at_risk_count = int(exec_row.get("AT_RISK_COUNT") or 0)
     st.metric(
         "ARR em Risco",
         f"${arr_at_risk / 1_000:.0f}K",
-        delta=f"{customers_at_risk} clientes",
+        delta=f"{at_risk_count} clientes",
         delta_color="inverse",
     )
 
 with col3:
-    high_risk_arr = churn_row["HIGH_RISK_ARR"] or 0
-    high_risk_count = int(churn_row["HIGH_RISK_COUNT"] or 0)
-    st.metric(
-        "Churn HIGH",
-        f"${high_risk_arr / 1_000:.0f}K",
-        delta=f"{high_risk_count} contas",
-        delta_color="inverse",
-    )
+    avg_health = float(exec_row.get("AVG_HEALTH_SCORE") or 0)
+    st.metric("Health Score Médio", f"{avg_health:.0f}/100")
 
 with col4:
-    open_tickets = int(ticket_row["OPEN_TICKETS"] or 0)
-    urgent_tickets = int(ticket_row["URGENT_TICKETS"] or 0)
+    open_tickets  = int(supp_row.get("OPEN_TICKETS") or 0)
+    crit_tickets  = int(supp_row.get("CRITICAL_TICKETS") or 0)
     st.metric(
         "Tickets Abertos",
         str(open_tickets),
-        delta=f"{urgent_tickets} urgentes",
-        delta_color="inverse" if urgent_tickets > 0 else "off",
+        delta=f"{crit_tickets} críticos",
+        delta_color="inverse" if crit_tickets > 0 else "off",
     )
 
 with col5:
-    nps = row["AVG_NPS"] or 0
+    nps = float(exec_row.get("AVG_NPS") or 0)
     st.metric("NPS Médio", f"{nps:.0f}", delta="±0 vs mês anterior")
 
 st.divider()

@@ -543,6 +543,153 @@ GROUP BY d.document_id, d.org_id, d.document_name, d.document_type,
          d.processing_status, d.summary, d.created_at;
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- Dynamic Tables — MART e AI
+-- Refresh declarativo: Snowflake recalcula cada DT automaticamente.
+-- Requer que NEXUS_COMPUTE_WH exista no account do consumer.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE DYNAMIC TABLE MART.DT_CUSTOMER_HEALTH
+    TARGET_LAG  = '1 hour'
+    WAREHOUSE   = NEXUS_COMPUTE_WH
+    INITIALIZE  = ON_CREATE
+AS
+WITH
+latest_churn AS (
+    SELECT customer_id, org_id, churn_probability, risk_level,
+           expected_revenue_at_risk, recommended_action, scored_at
+    FROM AI.CHURN_SCORES
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY customer_id, org_id ORDER BY scored_at DESC) = 1
+),
+open_ticket_counts AS (
+    SELECT customer_id, org_id,
+        COUNT(*) AS open_tickets,
+        COUNT(CASE WHEN priority IN ('urgent', 'high') THEN 1 END) AS critical_open_tickets,
+        COUNT(CASE WHEN sla_breach = TRUE THEN 1 END) AS sla_breaches
+    FROM CORE.TICKETS
+    WHERE status = 'open'
+    GROUP BY customer_id, org_id
+),
+usage_30d AS (
+    SELECT customer_id, org_id,
+        COUNT(*) AS events_30d,
+        COUNT(DISTINCT DATE(occurred_at)) AS active_days_30d,
+        COUNT(DISTINCT feature_name) AS distinct_features_30d,
+        MAX(occurred_at) AS last_activity_at
+    FROM CORE.PRODUCT_EVENTS
+    WHERE occurred_at >= DATEADD('day', -30, CURRENT_TIMESTAMP())
+    GROUP BY customer_id, org_id
+)
+SELECT
+    c.customer_id, c.org_id, c.name AS customer_name, c.segment, c.lifecycle_stage,
+    c.arr, c.mrr, c.nps_score, c.contract_end_date,
+    DATEDIFF('day', CURRENT_DATE(), c.contract_end_date) AS days_to_renewal,
+    COALESCE(cs.churn_probability, 0.5)       AS churn_probability,
+    COALESCE(cs.risk_level, 'UNKNOWN')        AS churn_risk_level,
+    COALESCE(cs.expected_revenue_at_risk, 0)  AS expected_revenue_at_risk,
+    cs.recommended_action                      AS churn_recommended_action,
+    cs.scored_at                               AS churn_scored_at,
+    COALESCE(t.open_tickets, 0)               AS open_tickets,
+    COALESCE(t.critical_open_tickets, 0)      AS critical_open_tickets,
+    COALESCE(t.sla_breaches, 0)               AS sla_breaches,
+    COALESCE(u.events_30d, 0)                 AS events_30d,
+    COALESCE(u.active_days_30d, 0)            AS active_days_30d,
+    COALESCE(u.distinct_features_30d, 0)      AS distinct_features_30d,
+    u.last_activity_at,
+    DATEDIFF('day', u.last_activity_at, CURRENT_TIMESTAMP()) AS days_since_last_activity,
+    ROUND((1 - COALESCE(cs.churn_probability, 0.5)) * 100, 0) AS health_score,
+    CURRENT_TIMESTAMP() AS refreshed_at
+FROM CORE.CUSTOMERS c
+LEFT JOIN latest_churn       cs ON c.customer_id = cs.customer_id AND c.org_id = cs.org_id
+LEFT JOIN open_ticket_counts  t ON c.customer_id = t.customer_id  AND c.org_id = t.org_id
+LEFT JOIN usage_30d           u ON c.customer_id = u.customer_id  AND c.org_id = u.org_id;
+
+CREATE OR REPLACE DYNAMIC TABLE MART.DT_EXECUTIVE_KPIS
+    TARGET_LAG  = '1 hour'
+    WAREHOUSE   = NEXUS_COMPUTE_WH
+    INITIALIZE  = ON_CREATE
+AS
+WITH active_recommendations AS (
+    SELECT org_id, COUNT(*) AS open_recommendations,
+           SUM(expected_impact_usd) AS total_expected_impact_usd
+    FROM AI.RECOMMENDATIONS
+    WHERE is_active = TRUE AND status = 'pending'
+    GROUP BY org_id
+)
+SELECT
+    h.org_id,
+    COUNT(*) AS customer_count,
+    COUNT(CASE WHEN h.lifecycle_stage NOT IN ('churned', 'cancelled') THEN 1 END) AS active_count,
+    COUNT(CASE WHEN h.churn_risk_level = 'HIGH' THEN 1 END) AS at_risk_count,
+    COUNT(CASE WHEN h.lifecycle_stage IN ('churned', 'cancelled') THEN 1 END) AS churned_count,
+    SUM(CASE WHEN h.lifecycle_stage NOT IN ('churned', 'cancelled') THEN COALESCE(h.arr, 0) ELSE 0 END) AS total_arr,
+    SUM(CASE WHEN h.lifecycle_stage NOT IN ('churned', 'cancelled') THEN COALESCE(h.mrr, 0) ELSE 0 END) AS total_mrr,
+    ROUND(AVG(CASE WHEN h.lifecycle_stage NOT IN ('churned', 'cancelled') THEN h.nps_score END), 1) AS avg_nps,
+    SUM(CASE WHEN h.churn_risk_level IN ('HIGH', 'MEDIUM') THEN COALESCE(h.expected_revenue_at_risk, 0) ELSE 0 END) AS arr_at_risk,
+    SUM(CASE WHEN h.lifecycle_stage NOT IN ('churned', 'cancelled')
+              AND h.contract_end_date IS NOT NULL
+              AND h.days_to_renewal BETWEEN 0 AND 90
+             THEN COALESCE(h.arr, 0) ELSE 0 END) AS renewal_90d_arr,
+    COALESCE(r.open_recommendations, 0)       AS open_recommendations,
+    COALESCE(r.total_expected_impact_usd, 0)  AS total_expected_impact_usd,
+    ROUND(AVG(CASE WHEN h.lifecycle_stage NOT IN ('churned', 'cancelled') THEN h.health_score END), 1) AS avg_health_score,
+    CURRENT_TIMESTAMP() AS refreshed_at
+FROM MART.DT_CUSTOMER_HEALTH h
+LEFT JOIN active_recommendations r ON h.org_id = r.org_id
+GROUP BY h.org_id, r.open_recommendations, r.total_expected_impact_usd;
+
+CREATE OR REPLACE DYNAMIC TABLE MART.DT_REVENUE_MOVEMENT
+    TARGET_LAG  = '1 day'
+    WAREHOUSE   = NEXUS_COMPUTE_WH
+    INITIALIZE  = ON_CREATE
+AS
+SELECT
+    org_id,
+    transaction_date AS revenue_date,
+    SUM(CASE WHEN transaction_type = 'new_contract' THEN COALESCE(amount, 0) ELSE 0 END) AS new_arr,
+    SUM(CASE WHEN transaction_type = 'upsell'       THEN COALESCE(amount, 0) ELSE 0 END) AS expansion_arr,
+    SUM(CASE WHEN transaction_type = 'downgrade'    THEN COALESCE(amount, 0) ELSE 0 END) AS contraction_arr,
+    SUM(CASE WHEN transaction_type = 'churn'        THEN COALESCE(amount, 0) ELSE 0 END) AS churn_arr,
+    SUM(CASE WHEN transaction_type = 'renewal'      THEN COALESCE(amount, 0) ELSE 0 END) AS renewal_arr,
+    (  SUM(CASE WHEN transaction_type = 'new_contract' THEN COALESCE(amount, 0) ELSE 0 END)
+     + SUM(CASE WHEN transaction_type = 'upsell'       THEN COALESCE(amount, 0) ELSE 0 END)
+     - SUM(CASE WHEN transaction_type = 'downgrade'    THEN COALESCE(amount, 0) ELSE 0 END)
+     - SUM(CASE WHEN transaction_type = 'churn'        THEN COALESCE(amount, 0) ELSE 0 END)
+    ) AS net_arr,
+    COUNT(DISTINCT transaction_id) AS transaction_count,
+    COUNT(DISTINCT customer_id)    AS customers_transacted,
+    SUM(COALESCE(amount, 0))       AS total_revenue_booked,
+    CURRENT_TIMESTAMP()            AS refreshed_at
+FROM CORE.TRANSACTIONS
+WHERE status = 'completed'
+GROUP BY org_id, transaction_date;
+
+CREATE OR REPLACE DYNAMIC TABLE AI.DT_SUPPORT_INTELLIGENCE
+    TARGET_LAG  = '30 minutes'
+    WAREHOUSE   = NEXUS_COMPUTE_WH
+    INITIALIZE  = ON_CREATE
+AS
+SELECT
+    org_id,
+    COUNT(*) AS total_tickets,
+    COUNT(CASE WHEN status = 'open' THEN 1 END)     AS open_tickets,
+    COUNT(CASE WHEN status = 'resolved' THEN 1 END) AS resolved_tickets,
+    COUNT(CASE WHEN status = 'open' AND priority IN ('urgent', 'high') THEN 1 END) AS critical_tickets,
+    COUNT(CASE WHEN sla_breach = TRUE THEN 1 END) AS sla_breached_count,
+    ROUND(COUNT(CASE WHEN sla_breach = TRUE THEN 1 END) * 100.0 / NULLIF(COUNT(*), 0), 2) AS sla_breach_rate_pct,
+    ROUND(AVG(CASE WHEN resolved_at IS NOT NULL THEN DATEDIFF('minute', created_at, resolved_at) / 60.0 END), 2) AS avg_resolution_hours,
+    ROUND(AVG(CASE WHEN status = 'open' THEN sentiment_score END), 3) AS avg_open_sentiment,
+    ROUND(AVG(sentiment_score), 3) AS avg_sentiment,
+    COUNT(CASE WHEN sentiment_label = 'positive' THEN 1 END) AS positive_tickets,
+    COUNT(CASE WHEN sentiment_label = 'neutral'  THEN 1 END) AS neutral_tickets,
+    COUNT(CASE WHEN sentiment_label = 'negative' THEN 1 END) AS negative_tickets,
+    COUNT(CASE WHEN created_at >= DATEADD('day', -7, CURRENT_TIMESTAMP()) THEN 1 END) AS tickets_trend_7d,
+    COUNT(CASE WHEN status = 'open' AND DATEDIFF('hour', created_at, CURRENT_TIMESTAMP()) > 48 THEN 1 END) AS stale_open_tickets,
+    MIN(CASE WHEN status = 'open' THEN created_at END) AS oldest_open_ticket_at,
+    CURRENT_TIMESTAMP() AS refreshed_at
+FROM CORE.TICKETS
+GROUP BY org_id;
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- Grants para Application Roles
 -- ─────────────────────────────────────────────────────────────────────────────
 
@@ -600,6 +747,20 @@ GRANT SELECT ON TABLE  CORE.CONTRACTS              TO APPLICATION ROLE NEXUS_ANA
 GRANT ALL    ON TABLE  CORE.CONTRACTS              TO APPLICATION ROLE NEXUS_ADMIN;
 GRANT ALL    ON TABLE  CORE.APPROVAL_QUEUE          TO APPLICATION ROLE NEXUS_ADMIN;
 GRANT ALL    ON TABLE  AI.RECOMMENDATIONS           TO APPLICATION ROLE NEXUS_ANALYST;
+
+-- Dynamic Tables
+GRANT SELECT ON DYNAMIC TABLE MART.DT_CUSTOMER_HEALTH      TO APPLICATION ROLE NEXUS_VIEWER;
+GRANT SELECT ON DYNAMIC TABLE MART.DT_EXECUTIVE_KPIS       TO APPLICATION ROLE NEXUS_VIEWER;
+GRANT SELECT ON DYNAMIC TABLE MART.DT_REVENUE_MOVEMENT     TO APPLICATION ROLE NEXUS_VIEWER;
+GRANT SELECT ON DYNAMIC TABLE AI.DT_SUPPORT_INTELLIGENCE   TO APPLICATION ROLE NEXUS_VIEWER;
+GRANT SELECT ON DYNAMIC TABLE MART.DT_CUSTOMER_HEALTH      TO APPLICATION ROLE NEXUS_ANALYST;
+GRANT SELECT ON DYNAMIC TABLE MART.DT_EXECUTIVE_KPIS       TO APPLICATION ROLE NEXUS_ANALYST;
+GRANT SELECT ON DYNAMIC TABLE MART.DT_REVENUE_MOVEMENT     TO APPLICATION ROLE NEXUS_ANALYST;
+GRANT SELECT ON DYNAMIC TABLE AI.DT_SUPPORT_INTELLIGENCE   TO APPLICATION ROLE NEXUS_ANALYST;
+GRANT ALL    ON DYNAMIC TABLE MART.DT_CUSTOMER_HEALTH      TO APPLICATION ROLE NEXUS_ADMIN;
+GRANT ALL    ON DYNAMIC TABLE MART.DT_EXECUTIVE_KPIS       TO APPLICATION ROLE NEXUS_ADMIN;
+GRANT ALL    ON DYNAMIC TABLE MART.DT_REVENUE_MOVEMENT     TO APPLICATION ROLE NEXUS_ADMIN;
+GRANT ALL    ON DYNAMIC TABLE AI.DT_SUPPORT_INTELLIGENCE   TO APPLICATION ROLE NEXUS_ADMIN;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Streamlit UI (referenciado por manifest.yml como default_streamlit)
