@@ -268,11 +268,9 @@ with col_sub:
         SELECT
             plan_name,
             plan_tier,
-            seats,
             mrr,
             arr,
-            current_period_end  AS renewal_date,
-            auto_renewal        AS auto_renew
+            renewal_date
         FROM CORE.SUBSCRIPTIONS
         WHERE org_id = '{ORG_ID}'
           AND customer_id = '{selected_id}'
@@ -285,9 +283,9 @@ with col_sub:
     else:
         st.dataframe(
             subs_df.rename(columns={
-                "PLAN_NAME": "Plano", "PLAN_TIER": "Tier", "SEATS": "Seats",
+                "PLAN_NAME": "Plano", "PLAN_TIER": "Tier",
                 "MRR": "MRR", "ARR": "ARR",
-                "RENEWAL_DATE": "Renovação", "AUTO_RENEW": "Auto-Renovação",
+                "RENEWAL_DATE": "Renovação",
             }),
             hide_index=True,
             use_container_width=True,

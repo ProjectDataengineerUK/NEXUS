@@ -395,11 +395,60 @@ CREATE TABLE IF NOT EXISTS CORE.APPROVAL_QUEUE (
 -- ─────────────────────────────────────────────────────────────────────────────
 
 CREATE OR REPLACE VIEW MART.CUSTOMER_360 AS
+WITH ticket_agg AS (
+    SELECT
+        customer_id,
+        org_id,
+        COUNT(*)                                                                AS total_tickets,
+        SUM(CASE WHEN status = 'open' THEN 1 ELSE 0 END)                      AS open_tickets,
+        SUM(CASE WHEN status = 'open'
+                  AND priority IN ('urgent','high') THEN 1 ELSE 0 END)        AS critical_open_tickets,
+        SUM(CASE WHEN sla_breach = TRUE THEN 1 ELSE 0 END)                    AS sla_breaches,
+        AVG(sentiment_score)                                                    AS avg_sentiment_score
+    FROM CORE.TICKETS
+    GROUP BY customer_id, org_id
+),
+latest_sentiment AS (
+    SELECT customer_id, org_id, sentiment_label
+    FROM CORE.TICKETS
+    WHERE sentiment_label IS NOT NULL
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY customer_id, org_id ORDER BY created_at DESC) = 1
+),
+usage_30d AS (
+    SELECT
+        customer_id,
+        org_id,
+        COUNT(*)                                           AS events_30d,
+        COUNT(DISTINCT DATE(occurred_at))                  AS active_days_30d,
+        COUNT(DISTINCT feature_name)                       AS distinct_features_used,
+        MAX(occurred_at)                                   AS last_activity_at,
+        DATEDIFF('day', MAX(occurred_at), CURRENT_TIMESTAMP()) AS days_since_last_activity
+    FROM CORE.PRODUCT_EVENTS
+    WHERE occurred_at >= DATEADD('day', -30, CURRENT_TIMESTAMP())
+    GROUP BY customer_id, org_id
+),
+usage_7d AS (
+    SELECT
+        customer_id,
+        org_id,
+        COUNT(*)                          AS events_7d,
+        COUNT(DISTINCT DATE(occurred_at)) AS active_days_7d
+    FROM CORE.PRODUCT_EVENTS
+    WHERE occurred_at >= DATEADD('day', -7, CURRENT_TIMESTAMP())
+    GROUP BY customer_id, org_id
+),
+agent_30d AS (
+    SELECT customer_id, org_id, COUNT(*) AS agent_invocations_30d
+    FROM CORE.PRODUCT_EVENTS
+    WHERE occurred_at >= DATEADD('day', -30, CURRENT_TIMESTAMP())
+      AND event_type = 'agent_invocation'
+    GROUP BY customer_id, org_id
+)
 SELECT
     c.customer_id,
     c.org_id,
     c.name,
-    c.name                                                        AS customer_name,
+    c.name                                                              AS customer_name,
     c.email,
     c.segment,
     c.region,
@@ -412,25 +461,57 @@ SELECT
     c.contract_end_date,
     c.customer_since,
     c.updated_at,
+    -- Churn
     cs.churn_probability,
-    cs.risk_level                                                 AS churn_risk_level,
-    cs.expected_revenue_at_risk                                   AS arr_usd,
-    cs.recommended_action,
+    cs.risk_level                                                       AS churn_risk_level,
+    cs.expected_revenue_at_risk,
+    cs.recommended_action                                               AS churn_recommended_action,
     cs.top_drivers,
     cs.scored_at,
-    ROUND((1.0 - COALESCE(cs.churn_probability, 0.5)) * 100, 0)  AS health_score,
+    ROUND((1.0 - COALESCE(cs.churn_probability, 0.5)) * 100, 0)       AS health_score,
+    -- Nearest renewal from active subscriptions
     (SELECT MIN(s.renewal_date)
      FROM CORE.SUBSCRIPTIONS s
      WHERE s.customer_id = c.customer_id
        AND s.org_id = c.org_id
        AND s.renewal_date >= CURRENT_DATE()
-       AND s.status = 'active')                                    AS nearest_renewal_date
+       AND s.status = 'active')                                         AS nearest_renewal_date,
+    -- Ticket metrics
+    COALESCE(ta.total_tickets, 0)                                       AS total_tickets,
+    COALESCE(ta.open_tickets, 0)                                        AS open_tickets,
+    COALESCE(ta.critical_open_tickets, 0)                               AS critical_open_tickets,
+    COALESCE(ta.sla_breaches, 0)                                        AS sla_breaches,
+    ta.avg_sentiment_score,
+    ls.sentiment_label,
+    -- Usage metrics (30d)
+    COALESCE(u30.events_30d, 0)                                         AS events_30d,
+    COALESCE(u30.active_days_30d, 0)                                    AS active_days_30d,
+    COALESCE(u30.distinct_features_used, 0)                             AS distinct_features_used,
+    u30.last_activity_at,
+    COALESCE(u30.days_since_last_activity, 999)                         AS days_since_last_activity,
+    -- Usage metrics (7d)
+    COALESCE(u7.events_7d, 0)                                           AS events_7d,
+    COALESCE(u7.active_days_7d, 0)                                      AS active_days_7d,
+    -- Agent usage
+    COALESCE(ag.agent_invocations_30d, 0)                               AS agent_invocations_30d,
+    -- Usage trend: compare 7d rate vs 30d rate
+    CASE
+        WHEN COALESCE(u30.events_30d, 0) = 0 THEN 'no_data'
+        WHEN COALESCE(u7.events_7d, 0) > COALESCE(u30.events_30d, 0) * 0.35 THEN 'up'
+        WHEN COALESCE(u7.events_7d, 0) < COALESCE(u30.events_30d, 0) * 0.15 THEN 'down'
+        ELSE 'stable'
+    END                                                                  AS usage_trend
 FROM CORE.CUSTOMERS c
 LEFT JOIN (
     SELECT *,
            ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY scored_at DESC) AS rn
     FROM AI.CHURN_SCORES
-) cs ON c.customer_id = cs.customer_id AND cs.rn = 1;
+) cs ON c.customer_id = cs.customer_id AND cs.rn = 1
+LEFT JOIN ticket_agg  ta  ON c.customer_id = ta.customer_id  AND c.org_id = ta.org_id
+LEFT JOIN latest_sentiment ls ON c.customer_id = ls.customer_id AND c.org_id = ls.org_id
+LEFT JOIN usage_30d   u30 ON c.customer_id = u30.customer_id AND c.org_id = u30.org_id
+LEFT JOIN usage_7d    u7  ON c.customer_id = u7.customer_id  AND c.org_id = u7.org_id
+LEFT JOIN agent_30d   ag  ON c.customer_id = ag.customer_id  AND c.org_id = ag.org_id;
 
 CREATE OR REPLACE VIEW AI.V_CONTRACT_INTELLIGENCE AS
 SELECT
