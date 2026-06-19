@@ -289,6 +289,20 @@ CREATE TABLE IF NOT EXISTS AUDIT.DATA_QUALITY_RESULTS (
     PRIMARY KEY (result_id)
 );
 
+CREATE TABLE IF NOT EXISTS AUDIT.ACCESS_LOG (
+    access_id     VARCHAR(36)  NOT NULL DEFAULT UUID_STRING(),
+    org_id        VARCHAR(36)  NOT NULL,
+    user_name     VARCHAR(255) NOT NULL,
+    role_name     VARCHAR(255),
+    resource_type VARCHAR(100),
+    resource_name VARCHAR(500),
+    action        VARCHAR(100) NOT NULL,
+    success       BOOLEAN      DEFAULT TRUE,
+    ip_address    VARCHAR(50),
+    created_at    TIMESTAMP_TZ DEFAULT CURRENT_TIMESTAMP(),
+    PRIMARY KEY (access_id)
+);
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Config
 -- ─────────────────────────────────────────────────────────────────────────────
