@@ -320,6 +320,28 @@ SELECT * FROM CORE.CUSTOMERS
 
 ---
 
+## Cloud Strategy — Onde cada camada roda
+
+```
+Consumer (cliente Snowflake)               Provider (NEXUS team)
+────────────────────────────               ──────────────────────
+Snowflake on AWS  ┐                        AWS Ingestion Layer
+Snowflake on Azure├ ← mesmo Native App →   Lambda, ECS, S3, MWAA
+Snowflake on GCP  ┘                        (Fase 1: AWS-first)
+```
+
+O Native App roda **dentro do Snowflake do consumer** — cloud-agnostic. A camada de cloud é responsabilidade do provider (ingestão de APIs externas).
+
+| Fase | Infraestrutura | Status |
+|------|---------------|--------|
+| **1 — MVP** | AWS-first (Lambda + S3 + Airflow/MWAA) | ⚠️ scripts existem, sem triggers |
+| **2 — Enterprise** | Suporte a consumers Azure + GCP via External Stages | ❌ não implementado |
+| **3 — Escala** | Multi-cloud + Databricks para ML pesado | ❌ planejado |
+
+> Ver detalhes completos em `CLOUD_STRATEGY.md`.
+
+---
+
 ## Distribuição — Native App Framework
 
 ```
@@ -332,8 +354,25 @@ NEXUS_AI_DATAOPS_PKG      ──►   NEXUS_AI_DATAOPS
       ├─ setup_script.sql        │   NEXUS_ANALYST
       └─ streamlit/              │   NEXUS_VIEWER
                                  ├─ Schemas (CORE/MART/AI/AUDIT)
-                                 ├─ Streamlit App (8 páginas)
+                                 ├─ Streamlit App (10 páginas)
                                  └─ Cortex integrations
                                     (dados nunca saem do
                                      account do cliente)
 ```
+
+---
+
+## Status atual — Gaps críticos (2026-06-19)
+
+| Prioridade | Gap | Bloqueio |
+|---|---|---|
+| **P0** | `manifest.yml` sem `references:` | Consumer não mapeia suas tabelas na instalação |
+| **P0** | Row Access Policy não criada no Native App | Multi-tenancy é estrutural, sem isolamento de runtime |
+| **P0** | External Access Integration inativo | Pipelines de ingestão não funcionam no Native App |
+| **P1** | Zero Airflow DAGs | Ingestão automática não existe |
+| **P1** | KBS (8 Knowledge Bases) ausente | Camada de conhecimento não implementada |
+| **P1** | Dynamic Tables fora do `setup_script` | Consumer não recebe MART atualizado automaticamente |
+| **P2** | External Stages S3/Azure/GCS ausentes | Consumers com data lakes não conseguem conectar |
+
+> Ver análise completa: `.claude/sdd/reports/GAP_ANALYSIS_2026-06-19.md`
+> Ver estratégia de cloud: `CLOUD_STRATEGY.md`

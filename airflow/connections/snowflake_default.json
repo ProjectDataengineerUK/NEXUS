@@ -1,0 +1,20 @@
+{
+  "conn_id": "snowflake_nexus",
+  "conn_type": "snowflake",
+  "description": "Conexão Snowflake do provider NEXUS (usada pelos DAGs de ingestão)",
+  "host": "<provider-account>.snowflakecomputing.com",
+  "schema": "NEXUS_APP",
+  "login": "<service-user>",
+  "password": "<service-user-password-or-rsa-key>",
+  "port": 443,
+  "extra": {
+    "account":   "<provider-account>",
+    "warehouse": "NEXUS_INGEST_WH",
+    "database":  "NEXUS_APP",
+    "role":      "NEXUS_SYSADMIN",
+    "authenticator": "snowflake",
+    "session_parameters": {
+      "QUERY_TAG": "airflow-nexus-ingestion"
+    }
+  }
+}

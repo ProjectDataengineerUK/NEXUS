@@ -111,10 +111,27 @@ CREATE TABLE IF NOT EXISTS CORE.DOCUMENTS (
     document_category  VARCHAR(100),
     document_summary   TEXT,
     extracted_fields   VARIANT,
+    -- Contract Intelligence fields
+    contract_type      VARCHAR(100),
+    contract_value_usd DECIMAL(18,2),
+    start_date         DATE,
+    end_date           DATE,
+    auto_renewal       BOOLEAN       DEFAULT FALSE,
+    governing_law      VARCHAR(255),
+    ai_summary         TEXT,
     created_at         TIMESTAMP_TZ  DEFAULT CURRENT_TIMESTAMP(),
     processed_at       TIMESTAMP_TZ,
     PRIMARY KEY (document_id)
 );
+
+-- Migrations: contract intelligence columns added post v1.0
+ALTER TABLE CORE.DOCUMENTS ADD COLUMN IF NOT EXISTS contract_type      VARCHAR(100);
+ALTER TABLE CORE.DOCUMENTS ADD COLUMN IF NOT EXISTS contract_value_usd DECIMAL(18,2);
+ALTER TABLE CORE.DOCUMENTS ADD COLUMN IF NOT EXISTS start_date         DATE;
+ALTER TABLE CORE.DOCUMENTS ADD COLUMN IF NOT EXISTS end_date           DATE;
+ALTER TABLE CORE.DOCUMENTS ADD COLUMN IF NOT EXISTS auto_renewal       BOOLEAN DEFAULT FALSE;
+ALTER TABLE CORE.DOCUMENTS ADD COLUMN IF NOT EXISTS governing_law      VARCHAR(255);
+ALTER TABLE CORE.DOCUMENTS ADD COLUMN IF NOT EXISTS ai_summary         TEXT;
 
 CREATE TABLE IF NOT EXISTS CORE.CONTRACTS (
     contract_id    VARCHAR(36)   NOT NULL DEFAULT UUID_STRING(),
@@ -129,6 +146,20 @@ CREATE TABLE IF NOT EXISTS CORE.CONTRACTS (
     created_at     TIMESTAMP_TZ  DEFAULT CURRENT_TIMESTAMP(),
     updated_at     TIMESTAMP_TZ  DEFAULT CURRENT_TIMESTAMP(),
     PRIMARY KEY (contract_id)
+);
+
+CREATE TABLE IF NOT EXISTS CORE.TRANSACTIONS (
+    transaction_id   VARCHAR(36)   NOT NULL DEFAULT UUID_STRING(),
+    org_id           VARCHAR(36)   NOT NULL,
+    customer_id      VARCHAR(36)   NOT NULL,
+    transaction_type VARCHAR(50)   NOT NULL,
+    amount           DECIMAL(18,2),
+    currency         VARCHAR(10)   DEFAULT 'USD',
+    status           VARCHAR(50)   DEFAULT 'completed',
+    transaction_date DATE          NOT NULL DEFAULT CURRENT_DATE(),
+    description      VARCHAR(1000),
+    created_at       TIMESTAMP_TZ  DEFAULT CURRENT_TIMESTAMP(),
+    PRIMARY KEY (transaction_id)
 );
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -890,6 +921,47 @@ AS (
 );
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- Cortex Search Service — AI.CONTRACT_SEARCH
+-- Semantic search dedicado a contratos e SLAs
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE VIEW AI.CONTRACT_CHUNKS_V AS
+SELECT
+    ch.chunk_id,
+    ch.document_id,
+    ch.chunk_text,
+    ch.chunk_index,
+    COALESCE(ch.section_title, '') AS section_title,
+    d.document_name                AS contract_name,
+    d.document_type,
+    d.org_id,
+    d.entity_id                    AS customer_id,
+    c.name                         AS customer_name,
+    d.contract_type,
+    d.contract_value_usd,
+    d.start_date,
+    d.end_date,
+    d.auto_renewal,
+    d.governing_law,
+    d.ai_summary                   AS contract_summary
+FROM AI.DOCUMENT_CHUNKS ch
+JOIN CORE.DOCUMENTS d  ON ch.document_id = d.document_id
+LEFT JOIN CORE.CUSTOMERS c ON d.entity_id = c.customer_id AND d.org_id = c.org_id
+WHERE d.document_type IN ('contract', 'sla', 'amendment', 'addendum')
+  AND ch.chunk_text IS NOT NULL;
+
+CREATE OR REPLACE CORTEX SEARCH SERVICE AI.CONTRACT_SEARCH
+    ON chunk_text
+    ATTRIBUTES
+        document_id, contract_name, customer_name, customer_id, org_id,
+        document_type, section_title, contract_type, contract_value_usd,
+        start_date, end_date, auto_renewal, governing_law, contract_summary
+    WAREHOUSE = NEXUS_COMPUTE_WH
+    TARGET_LAG = '1 hour'
+    COMMENT = 'Semantic search sobre contratos e SLAs — Contract Intelligence NEXUS'
+AS (SELECT * FROM AI.CONTRACT_CHUNKS_V);
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- Grants para Application Roles
 -- ─────────────────────────────────────────────────────────────────────────────
 
@@ -945,13 +1017,20 @@ GRANT SELECT, INSERT ON TABLE AI.AGENT_MESSAGES     TO APPLICATION ROLE NEXUS_VI
 GRANT SELECT, INSERT ON TABLE CORE.APPROVAL_QUEUE   TO APPLICATION ROLE NEXUS_ANALYST;
 GRANT SELECT ON TABLE  CORE.CONTRACTS              TO APPLICATION ROLE NEXUS_ANALYST;
 GRANT ALL    ON TABLE  CORE.CONTRACTS              TO APPLICATION ROLE NEXUS_ADMIN;
+GRANT SELECT ON TABLE  CORE.TRANSACTIONS           TO APPLICATION ROLE NEXUS_ANALYST;
+GRANT ALL    ON TABLE  CORE.TRANSACTIONS           TO APPLICATION ROLE NEXUS_ADMIN;
 GRANT ALL    ON TABLE  CORE.APPROVAL_QUEUE          TO APPLICATION ROLE NEXUS_ADMIN;
 GRANT ALL    ON TABLE  AI.RECOMMENDATIONS           TO APPLICATION ROLE NEXUS_ANALYST;
 
 -- Cortex Search Services
-GRANT USAGE ON CORTEX SEARCH SERVICE AI.DOC_SEARCH TO APPLICATION ROLE NEXUS_ADMIN;
-GRANT USAGE ON CORTEX SEARCH SERVICE AI.DOC_SEARCH TO APPLICATION ROLE NEXUS_ANALYST;
-GRANT USAGE ON CORTEX SEARCH SERVICE AI.DOC_SEARCH TO APPLICATION ROLE NEXUS_VIEWER;
+GRANT USAGE ON CORTEX SEARCH SERVICE AI.DOC_SEARCH      TO APPLICATION ROLE NEXUS_ADMIN;
+GRANT USAGE ON CORTEX SEARCH SERVICE AI.DOC_SEARCH      TO APPLICATION ROLE NEXUS_ANALYST;
+GRANT USAGE ON CORTEX SEARCH SERVICE AI.DOC_SEARCH      TO APPLICATION ROLE NEXUS_VIEWER;
+GRANT USAGE ON CORTEX SEARCH SERVICE AI.CONTRACT_SEARCH TO APPLICATION ROLE NEXUS_ADMIN;
+GRANT USAGE ON CORTEX SEARCH SERVICE AI.CONTRACT_SEARCH TO APPLICATION ROLE NEXUS_ANALYST;
+GRANT SELECT ON VIEW AI.CONTRACT_CHUNKS_V               TO APPLICATION ROLE NEXUS_VIEWER;
+GRANT SELECT ON VIEW AI.CONTRACT_CHUNKS_V               TO APPLICATION ROLE NEXUS_ANALYST;
+GRANT SELECT ON VIEW AI.CONTRACT_CHUNKS_V               TO APPLICATION ROLE NEXUS_ADMIN;
 
 -- Document AI procedures
 GRANT USAGE ON PROCEDURE AI.SP_PROCESS_DOCUMENT(VARCHAR, VARCHAR)
@@ -1018,3 +1097,595 @@ WHEN NOT MATCHED THEN
     INSERT (setting_key, setting_value, description) VALUES (s.setting_key, s.setting_value, s.description)
 WHEN MATCHED THEN
     UPDATE SET setting_value = '1.0.0', updated_at = CURRENT_TIMESTAMP();
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Sprint 2 — P0: Multi-tenancy, Row Access Policies e isolamento por org_id
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- Extende CONFIG.ORG_USER_MAP com coluna role (idempotente)
+ALTER TABLE CONFIG.ORG_USER_MAP ADD COLUMN IF NOT EXISTS role VARCHAR(50) DEFAULT 'analyst';
+
+-- Seed: usuários demo (idempotente)
+MERGE INTO CONFIG.ORG_USER_MAP t
+USING (
+    SELECT 'ORG-DEMO-001' AS org_id, 'NEXUS_ADMIN'   AS user_name, 'admin'    AS role UNION ALL
+    SELECT 'ORG-DEMO-001',            'NEXUS_ANALYST', 'analyst'
+) s ON t.org_id = s.org_id AND t.user_name = s.user_name
+WHEN NOT MATCHED THEN INSERT (org_id, user_name, role) VALUES (s.org_id, s.user_name, s.role)
+WHEN MATCHED THEN UPDATE SET role = s.role;
+
+-- CONFIG.DATA_SOURCES — rastreia quais referências o consumer mapeou
+CREATE TABLE IF NOT EXISTS CONFIG.DATA_SOURCES (
+    source_name  VARCHAR(100)   NOT NULL,
+    is_active    BOOLEAN        DEFAULT FALSE,
+    mapped_at    TIMESTAMP_TZ,
+    PRIMARY KEY  (source_name)
+);
+
+MERGE INTO CONFIG.DATA_SOURCES t
+USING (
+    SELECT 'customer_table'     AS source_name, FALSE AS is_active UNION ALL
+    SELECT 'transactions_table', FALSE UNION ALL
+    SELECT 'events_table',       FALSE
+) s ON t.source_name = s.source_name
+WHEN NOT MATCHED THEN INSERT (source_name, is_active) VALUES (s.source_name, s.is_active);
+
+-- Row Access Policy — filtra por org_id usando CONFIG.ORG_USER_MAP
+CREATE OR REPLACE ROW ACCESS POLICY CORE.RAP_ORG_ISOLATION
+  AS (row_org_id VARCHAR) RETURNS BOOLEAN ->
+  (
+    -- Permite acesso se usuário está mapeado para este org_id
+    EXISTS (
+      SELECT 1 FROM CONFIG.ORG_USER_MAP m
+      WHERE m.user_name = CURRENT_USER()
+        AND m.org_id    = row_org_id
+    )
+    -- Fallback: se tabela de mapeamento vazia, permite tudo (estado inicial do install)
+    OR NOT EXISTS (SELECT 1 FROM CONFIG.ORG_USER_MAP)
+  );
+
+-- Aplicar RAP em todas as tabelas que contêm org_id
+ALTER TABLE CORE.CUSTOMERS     ADD ROW ACCESS POLICY CORE.RAP_ORG_ISOLATION ON (org_id);
+ALTER TABLE CORE.SUBSCRIPTIONS ADD ROW ACCESS POLICY CORE.RAP_ORG_ISOLATION ON (org_id);
+ALTER TABLE CORE.TICKETS       ADD ROW ACCESS POLICY CORE.RAP_ORG_ISOLATION ON (org_id);
+ALTER TABLE CORE.PRODUCT_EVENTS ADD ROW ACCESS POLICY CORE.RAP_ORG_ISOLATION ON (org_id);
+ALTER TABLE CORE.DOCUMENTS     ADD ROW ACCESS POLICY CORE.RAP_ORG_ISOLATION ON (org_id);
+ALTER TABLE CORE.TRANSACTIONS  ADD ROW ACCESS POLICY CORE.RAP_ORG_ISOLATION ON (org_id);
+ALTER TABLE AI.CHURN_SCORES    ADD ROW ACCESS POLICY CORE.RAP_ORG_ISOLATION ON (org_id);
+ALTER TABLE AI.RECOMMENDATIONS ADD ROW ACCESS POLICY CORE.RAP_ORG_ISOLATION ON (org_id);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Sprint 2 — P0: External Access Integration (APIs externas via Native App)
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE NETWORK RULE CONFIG.ALLOW_APIS_RULE
+    TYPE       = HOST_PORT
+    MODE       = EGRESS
+    VALUE_LIST = (
+        'api.salesforce.com:443',
+        'login.salesforce.com:443',
+        'api.zendesk.com:443',
+        'api.stripe.com:443',
+        'docs.snowflake.com:443'
+    )
+    COMMENT = 'APIs externas aprovadas pelo consumer no install';
+
+CREATE EXTERNAL ACCESS INTEGRATION IF NOT EXISTS NEXUS_API_EAI
+    ALLOWED_NETWORK_RULES = (CONFIG.ALLOW_APIS_RULE)
+    ENABLED               = TRUE
+    COMMENT               = 'Integração de acesso externo para Salesforce, Zendesk e Stripe';
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Sprint 2 — P0: Tasks de ingestão e refresh automático
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- Task: atualizar churn scores via Snowpark ML (corrige AT-010)
+CREATE OR REPLACE TASK CORE.TASK_RUN_CHURN_PIPELINE
+    WAREHOUSE = NEXUS_APP_WH
+    SCHEDULE  = 'USING CRON 0 2 * * * UTC'
+    COMMENT   = 'Executa pipeline de churn diariamente às 2h UTC'
+AS
+    CALL CORE.SP_RUN_CHURN_PIPELINE();
+
+-- Task: gerar briefing executivo diário (corrige AT-010)
+CREATE OR REPLACE TASK CORE.TASK_EXECUTIVE_BRIEFING
+    WAREHOUSE = NEXUS_APP_WH
+    SCHEDULE  = 'USING CRON 0 7 * * * UTC'
+    COMMENT   = 'Gera briefing executivo de IA todo dia às 7h UTC'
+AS
+    CALL CORE.SP_GENERATE_EXECUTIVE_BRIEFING();
+
+-- Task: refresh do Revenue Opportunity Score
+CREATE OR REPLACE TASK MART.TASK_REFRESH_REVENUE_SCORE
+    WAREHOUSE = NEXUS_APP_WH
+    SCHEDULE  = 'USING CRON 0 */6 * * * UTC'
+    COMMENT   = 'Atualiza Revenue Opportunity Score a cada 6h'
+AS
+    INSERT INTO MART.REVENUE_OPPORTUNITY_SCORE (
+        customer_id, org_id, opportunity_score, opportunity_type,
+        estimated_revenue_usd, confidence, scored_at
+    )
+    SELECT
+        c.customer_id,
+        c.org_id,
+        CASE
+            WHEN c.churn_risk_score < 0.3 AND c.arr > 50000 THEN 0.85
+            WHEN c.churn_risk_score < 0.3 AND c.arr > 20000 THEN 0.70
+            WHEN c.churn_risk_score < 0.5 THEN 0.55
+            ELSE 0.20
+        END                                                     AS opportunity_score,
+        CASE
+            WHEN c.churn_risk_score < 0.3 THEN 'upsell'
+            WHEN c.churn_risk_score < 0.5 THEN 'expansion'
+            ELSE 'retention'
+        END                                                     AS opportunity_type,
+        c.arr * CASE
+            WHEN c.churn_risk_score < 0.3 THEN 0.25
+            WHEN c.churn_risk_score < 0.5 THEN 0.10
+            ELSE 0.05
+        END                                                     AS estimated_revenue_usd,
+        1 - c.churn_risk_score                                  AS confidence,
+        CURRENT_TIMESTAMP()
+    FROM CORE.CUSTOMERS c
+    WHERE NOT EXISTS (
+        SELECT 1 FROM MART.REVENUE_OPPORTUNITY_SCORE r
+        WHERE r.customer_id = c.customer_id
+          AND r.scored_at   > DATEADD('hour', -6, CURRENT_TIMESTAMP())
+    );
+
+ALTER TASK CORE.TASK_RUN_CHURN_PIPELINE    RESUME;
+ALTER TASK CORE.TASK_EXECUTIVE_BRIEFING    RESUME;
+ALTER TASK MART.TASK_REFRESH_REVENUE_SCORE RESUME;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Sprint 2 — P1: Tabelas canônicas ausentes (CONTEXT.md seção 34)
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS CORE.ACCOUNTS (
+    account_id      VARCHAR(36)   NOT NULL DEFAULT UUID_STRING(),
+    org_id          VARCHAR(50)   NOT NULL,
+    customer_id     VARCHAR(36),
+    account_name    VARCHAR(255)  NOT NULL,
+    account_type    VARCHAR(50),
+    industry        VARCHAR(100),
+    employee_count  INTEGER,
+    annual_revenue  DECIMAL(18,2),
+    website         VARCHAR(500),
+    created_at      TIMESTAMP_TZ  DEFAULT CURRENT_TIMESTAMP(),
+    updated_at      TIMESTAMP_TZ  DEFAULT CURRENT_TIMESTAMP(),
+    PRIMARY KEY (account_id)
+);
+
+CREATE TABLE IF NOT EXISTS CORE.PRODUCTS (
+    product_id       VARCHAR(36)   NOT NULL DEFAULT UUID_STRING(),
+    org_id           VARCHAR(50)   NOT NULL,
+    product_name     VARCHAR(255)  NOT NULL,
+    product_category VARCHAR(100),
+    description      TEXT,
+    unit_price       DECIMAL(18,2),
+    currency         VARCHAR(10)   DEFAULT 'USD',
+    is_active        BOOLEAN       DEFAULT TRUE,
+    created_at       TIMESTAMP_TZ  DEFAULT CURRENT_TIMESTAMP(),
+    PRIMARY KEY (product_id)
+);
+
+CREATE TABLE IF NOT EXISTS CORE.INTERACTIONS (
+    interaction_id   VARCHAR(36)   NOT NULL DEFAULT UUID_STRING(),
+    org_id           VARCHAR(50)   NOT NULL,
+    customer_id      VARCHAR(36),
+    channel          VARCHAR(50),
+    direction        VARCHAR(10),
+    subject          VARCHAR(500),
+    body             TEXT,
+    sentiment_score  DECIMAL(4,2),
+    outcome          VARCHAR(100),
+    occurred_at      TIMESTAMP_TZ  NOT NULL DEFAULT CURRENT_TIMESTAMP(),
+    created_at       TIMESTAMP_TZ  DEFAULT CURRENT_TIMESTAMP(),
+    PRIMARY KEY (interaction_id)
+);
+
+-- Aplicar RAP nas novas tabelas canônicas
+ALTER TABLE CORE.ACCOUNTS     ADD ROW ACCESS POLICY CORE.RAP_ORG_ISOLATION ON (org_id);
+ALTER TABLE CORE.PRODUCTS     ADD ROW ACCESS POLICY CORE.RAP_ORG_ISOLATION ON (org_id);
+ALTER TABLE CORE.INTERACTIONS ADD ROW ACCESS POLICY CORE.RAP_ORG_ISOLATION ON (org_id);
+
+-- Revenue Opportunity Score — tabela target das Tasks
+CREATE TABLE IF NOT EXISTS MART.REVENUE_OPPORTUNITY_SCORE (
+    score_id             VARCHAR(36)   NOT NULL DEFAULT UUID_STRING(),
+    customer_id          VARCHAR(36)   NOT NULL,
+    org_id               VARCHAR(50)   NOT NULL,
+    opportunity_score    DECIMAL(4,2),
+    opportunity_type     VARCHAR(50),
+    estimated_revenue_usd DECIMAL(18,2),
+    confidence           DECIMAL(4,2),
+    scored_at            TIMESTAMP_TZ  DEFAULT CURRENT_TIMESTAMP(),
+    PRIMARY KEY (score_id)
+);
+
+ALTER TABLE MART.REVENUE_OPPORTUNITY_SCORE
+    ADD ROW ACCESS POLICY CORE.RAP_ORG_ISOLATION ON (org_id);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Sprint 2 — P1: Dynamic Tables no setup_script (chegam ao consumer via Native App)
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE DYNAMIC TABLE MART.DT_EXECUTIVE_KPIS
+    TARGET_LAG = '1 hour'
+    WAREHOUSE  = NEXUS_APP_WH
+    COMMENT    = 'KPIs executivos — atualiza automaticamente a cada 1h'
+AS
+SELECT
+    c.org_id,
+    COUNT(DISTINCT c.customer_id)                             AS total_customers,
+    ROUND(AVG(c.churn_risk_score) * 100, 1)                  AS avg_churn_risk_pct,
+    COUNT(CASE WHEN c.churn_risk_score > 0.7 THEN 1 END)     AS critical_risk_count,
+    COUNT(CASE WHEN c.lifecycle_stage = 'active' THEN 1 END) AS active_customers,
+    COALESCE(SUM(c.arr), 0)                                  AS total_arr,
+    COALESCE(SUM(c.mrr), 0)                                  AS total_mrr,
+    COALESCE(AVG(c.nps_score), 0)                            AS avg_nps,
+    CURRENT_TIMESTAMP()                                       AS refreshed_at
+FROM CORE.CUSTOMERS c
+GROUP BY c.org_id;
+
+CREATE OR REPLACE DYNAMIC TABLE MART.DT_CUSTOMER_HEALTH
+    TARGET_LAG = '1 hour'
+    WAREHOUSE  = NEXUS_APP_WH
+    COMMENT    = 'Health score e segmento por cliente — lag 1h'
+AS
+SELECT
+    c.customer_id,
+    c.org_id,
+    c.name,
+    c.segment,
+    c.region,
+    c.arr,
+    c.mrr,
+    c.nps_score,
+    COALESCE(cs.churn_probability, c.churn_risk_score, 0.5)   AS churn_risk_score,
+    COALESCE(cs.risk_level, 'MEDIUM')                          AS risk_level,
+    CASE
+        WHEN COALESCE(cs.churn_probability, 0.5) >= 0.7 THEN 'CRITICAL'
+        WHEN COALESCE(cs.churn_probability, 0.5) >= 0.5 THEN 'AT_RISK'
+        WHEN COALESCE(cs.churn_probability, 0.5) >= 0.3 THEN 'HEALTHY'
+        ELSE 'CHAMPION'
+    END                                                        AS health_segment,
+    c.contract_end_date,
+    c.lifecycle_stage,
+    CURRENT_TIMESTAMP()                                        AS refreshed_at
+FROM CORE.CUSTOMERS c
+LEFT JOIN AI.CHURN_SCORES cs ON c.customer_id = cs.customer_id;
+
+CREATE OR REPLACE DYNAMIC TABLE MART.DT_REVENUE_MOVEMENT
+    TARGET_LAG = '1 hour'
+    WAREHOUSE  = NEXUS_APP_WH
+    COMMENT    = 'Movimento de receita — New, Expansion, Churn por mês'
+AS
+SELECT
+    org_id,
+    DATE_TRUNC('month', transaction_date)           AS month,
+    transaction_type,
+    COUNT(*)                                        AS transaction_count,
+    SUM(amount)                                     AS total_amount,
+    AVG(amount)                                     AS avg_amount
+FROM CORE.TRANSACTIONS
+GROUP BY org_id, DATE_TRUNC('month', transaction_date), transaction_type;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Sprint 2 — P1: Agent-specific roles (RBAC granular por agente)
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE APPLICATION ROLE IF NOT EXISTS AGENT_EXECUTIVE_READONLY;
+CREATE APPLICATION ROLE IF NOT EXISTS AGENT_REVENUE_READONLY;
+CREATE APPLICATION ROLE IF NOT EXISTS AGENT_CUSTOMER_READONLY;
+CREATE APPLICATION ROLE IF NOT EXISTS AGENT_RISK_READONLY;
+CREATE APPLICATION ROLE IF NOT EXISTS AGENT_OPS_READONLY;
+
+GRANT APPLICATION ROLE AGENT_EXECUTIVE_READONLY TO APPLICATION ROLE NEXUS_VIEWER;
+GRANT APPLICATION ROLE AGENT_REVENUE_READONLY   TO APPLICATION ROLE NEXUS_ANALYST;
+GRANT APPLICATION ROLE AGENT_CUSTOMER_READONLY  TO APPLICATION ROLE NEXUS_ANALYST;
+GRANT APPLICATION ROLE AGENT_RISK_READONLY      TO APPLICATION ROLE NEXUS_ANALYST;
+GRANT APPLICATION ROLE AGENT_OPS_READONLY       TO APPLICATION ROLE NEXUS_ANALYST;
+
+GRANT SELECT ON DYNAMIC TABLE MART.DT_EXECUTIVE_KPIS   TO APPLICATION ROLE AGENT_EXECUTIVE_READONLY;
+GRANT SELECT ON DYNAMIC TABLE MART.DT_CUSTOMER_HEALTH  TO APPLICATION ROLE AGENT_CUSTOMER_READONLY;
+GRANT SELECT ON DYNAMIC TABLE MART.DT_REVENUE_MOVEMENT TO APPLICATION ROLE AGENT_REVENUE_READONLY;
+GRANT SELECT ON TABLE CORE.TICKETS                     TO APPLICATION ROLE AGENT_OPS_READONLY;
+GRANT SELECT ON TABLE CORE.INTERACTIONS                TO APPLICATION ROLE AGENT_OPS_READONLY;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Sprint 2 — P1: KBS (Knowledge Base Systems) — CONTEXT.md seção 36
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE SCHEMA IF NOT EXISTS KBS;
+
+CREATE TABLE IF NOT EXISTS KBS.DOCUMENTS (
+    doc_id        VARCHAR(36)   NOT NULL DEFAULT UUID_STRING(),
+    kb_name       VARCHAR(100)  NOT NULL,
+    title         VARCHAR(500)  NOT NULL,
+    content       TEXT          NOT NULL,
+    source_url    VARCHAR(1000),
+    doc_type      VARCHAR(50),
+    version       VARCHAR(20),
+    chunk_index   INTEGER       DEFAULT 0,
+    total_chunks  INTEGER       DEFAULT 1,
+    indexed_at    TIMESTAMP_TZ  DEFAULT CURRENT_TIMESTAMP(),
+    is_active     BOOLEAN       DEFAULT TRUE,
+    PRIMARY KEY   (doc_id)
+);
+
+ALTER TABLE KBS.DOCUMENTS CLUSTER BY (kb_name);
+
+CREATE TABLE IF NOT EXISTS KBS.SOURCES (
+    source_id    VARCHAR(36)    NOT NULL DEFAULT UUID_STRING(),
+    kb_name      VARCHAR(100)   NOT NULL,
+    source_url   VARCHAR(1000)  NOT NULL,
+    title        VARCHAR(500),
+    last_crawled TIMESTAMP_TZ,
+    doc_count    INTEGER        DEFAULT 0,
+    is_active    BOOLEAN        DEFAULT TRUE,
+    PRIMARY KEY  (source_id)
+);
+
+CREATE TABLE IF NOT EXISTS KBS.SEARCH_LOGS (
+    log_id        VARCHAR(36)   NOT NULL DEFAULT UUID_STRING(),
+    kb_name       VARCHAR(100),
+    query_text    TEXT,
+    result_count  INTEGER,
+    top_doc_id    VARCHAR(36),
+    user_feedback VARCHAR(20),
+    latency_ms    INTEGER,
+    created_at    TIMESTAMP_TZ  DEFAULT CURRENT_TIMESTAMP(),
+    PRIMARY KEY   (log_id)
+);
+
+-- Seed: fontes das 2 KBs prioritárias (indexação via pipeline externo)
+MERGE INTO KBS.SOURCES t
+USING (
+    SELECT 'KB_SNOWFLAKE_CORE' AS kb_name, 'https://docs.snowflake.com/en/developer-guide/native-apps/native-apps-about' AS source_url, 'Native App Framework'    AS title UNION ALL
+    SELECT 'KB_SNOWFLAKE_CORE', 'https://docs.snowflake.com/en/user-guide/dynamic-tables-intro',                         'Dynamic Tables Overview' UNION ALL
+    SELECT 'KB_SNOWFLAKE_CORE', 'https://docs.snowflake.com/en/user-guide/tasks-intro',                                  'Tasks Introduction'      UNION ALL
+    SELECT 'KB_SNOWFLAKE_CORE', 'https://docs.snowflake.com/en/user-guide/streams-intro',                                'Streams Introduction'    UNION ALL
+    SELECT 'KB_CORTEX_AI',      'https://docs.snowflake.com/en/user-guide/cortex-search/cortex-search-overview',         'Cortex Search Overview'  UNION ALL
+    SELECT 'KB_CORTEX_AI',      'https://docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-analyst',              'Cortex Analyst'          UNION ALL
+    SELECT 'KB_CORTEX_AI',      'https://docs.snowflake.com/en/user-guide/cortex-agents',                                'Cortex Agents'
+) s ON t.kb_name = s.kb_name AND t.source_url = s.source_url
+WHEN NOT MATCHED THEN INSERT (kb_name, source_url, title) VALUES (s.kb_name, s.source_url, s.title);
+
+-- Cortex Search Service unificado para todas as KBs (filtro por kb_name em queries)
+CREATE OR REPLACE CORTEX SEARCH SERVICE KBS.KB_SEARCH_SERVICE
+    ON content
+    ATTRIBUTES kb_name, doc_type, source_url, title
+    WAREHOUSE  = NEXUS_APP_WH
+    TARGET_LAG = '7 days'
+AS (
+    SELECT content, kb_name, doc_type, source_url, title, doc_id
+    FROM KBS.DOCUMENTS
+    WHERE is_active = TRUE
+);
+
+GRANT USAGE ON SCHEMA KBS TO APPLICATION ROLE NEXUS_VIEWER;
+GRANT SELECT ON ALL TABLES IN SCHEMA KBS TO APPLICATION ROLE NEXUS_ANALYST;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Demo data — seed idempotente para demonstração do Native App
+-- ─────────────────────────────────────────────────────────────────────────────
+
+MERGE INTO CORE.CUSTOMERS tgt
+USING (
+    SELECT 'CUST-DEMO-001' AS customer_id, 'ORG-DEMO-001' AS org_id, 'Acme Corp'       AS name, 'admin@acme.com'     AS email, 'Enterprise'  AS segment, 'LATAM' AS region, 'Technology' AS industry, 'active'  AS lifecycle_stage, 120000.00 AS arr, 10000.00 AS mrr, 45  AS nps_score, '2026-12-31'::DATE AS contract_end_date UNION ALL
+    SELECT 'CUST-DEMO-002', 'ORG-DEMO-001', 'Beta Saúde',      'admin@beta.com',    'Enterprise',  'LATAM', 'Healthcare',  'at_risk', 95000.00,  7916.00,  18,  '2026-09-30'::DATE UNION ALL
+    SELECT 'CUST-DEMO-003', 'ORG-DEMO-001', 'Gama Retail',     'admin@gama.com',    'Mid-Market',  'LATAM', 'Retail',      'active',  48000.00,  4000.00,  52,  '2027-03-31'::DATE UNION ALL
+    SELECT 'CUST-DEMO-004', 'ORG-DEMO-001', 'Delta Fintech',   'admin@delta.com',   'Enterprise',  'USA',   'Financial',   'at_risk', 200000.00, 16666.00, 12,  '2026-08-31'::DATE UNION ALL
+    SELECT 'CUST-DEMO-005', 'ORG-DEMO-001', 'Epsilon Tech',    'admin@epsilon.com', 'Mid-Market',  'USA',   'Technology',  'active',  36000.00,  3000.00,  38,  '2027-06-30'::DATE UNION ALL
+    SELECT 'CUST-DEMO-006', 'ORG-DEMO-001', 'Zeta Logística',  'admin@zeta.com',    'SMB',         'LATAM', 'Logistics',   'active',  18000.00,  1500.00,  55,  '2027-01-31'::DATE UNION ALL
+    SELECT 'CUST-DEMO-007', 'ORG-DEMO-001', 'Eta Educação',    'admin@eta.com',     'Mid-Market',  'LATAM', 'Education',   'active',  42000.00,  3500.00,  60,  '2026-11-30'::DATE UNION ALL
+    SELECT 'CUST-DEMO-008', 'ORG-DEMO-001', 'Theta Energia',   'admin@theta.com',   'Enterprise',  'LATAM', 'Energy',      'churned', 75000.00,  6250.00,  -10, '2026-03-31'::DATE UNION ALL
+    SELECT 'CUST-DEMO-009', 'ORG-DEMO-001', 'Iota Seguros',    'admin@iota.com',    'Mid-Market',  'USA',   'Insurance',   'active',  60000.00,  5000.00,  42,  '2027-02-28'::DATE UNION ALL
+    SELECT 'CUST-DEMO-010', 'ORG-DEMO-001', 'Kappa Telecom',   'admin@kappa.com',   'Enterprise',  'LATAM', 'Telecom',     'active',  150000.00, 12500.00, 35,  '2026-10-31'::DATE
+) src ON (tgt.customer_id = src.customer_id)
+WHEN NOT MATCHED THEN INSERT
+    (customer_id, org_id, name, email, segment, region, industry, lifecycle_stage, arr, mrr, nps_score, contract_end_date)
+    VALUES (src.customer_id, src.org_id, src.name, src.email, src.segment, src.region, src.industry, src.lifecycle_stage, src.arr, src.mrr, src.nps_score, src.contract_end_date)
+WHEN MATCHED THEN UPDATE SET
+    name = src.name, lifecycle_stage = src.lifecycle_stage, arr = src.arr, mrr = src.mrr,
+    nps_score = src.nps_score, contract_end_date = src.contract_end_date;
+
+MERGE INTO CORE.SUBSCRIPTIONS tgt
+USING (
+    SELECT 'SUB-DEMO-001' AS subscription_id, 'ORG-DEMO-001' AS org_id, 'CUST-DEMO-001' AS customer_id, 'Enterprise Suite' AS plan_name, 'enterprise' AS plan_tier, 'active' AS status, 10000.00 AS mrr, 120000.00 AS arr, '2026-12-31'::DATE AS renewal_date UNION ALL
+    SELECT 'SUB-DEMO-002', 'ORG-DEMO-001', 'CUST-DEMO-002', 'Enterprise Suite',  'enterprise', 'active',  7916.00,  95000.00,  '2026-09-30'::DATE UNION ALL
+    SELECT 'SUB-DEMO-003', 'ORG-DEMO-001', 'CUST-DEMO-003', 'Growth',            'standard',   'active',  4000.00,  48000.00,  '2027-03-31'::DATE UNION ALL
+    SELECT 'SUB-DEMO-004', 'ORG-DEMO-001', 'CUST-DEMO-004', 'Enterprise Suite',  'enterprise', 'active',  16666.00, 200000.00, '2026-08-31'::DATE UNION ALL
+    SELECT 'SUB-DEMO-005', 'ORG-DEMO-001', 'CUST-DEMO-005', 'Growth',            'standard',   'active',  3000.00,  36000.00,  '2027-06-30'::DATE UNION ALL
+    SELECT 'SUB-DEMO-006', 'ORG-DEMO-001', 'CUST-DEMO-006', 'Starter',           'basic',      'active',  1500.00,  18000.00,  '2027-01-31'::DATE UNION ALL
+    SELECT 'SUB-DEMO-007', 'ORG-DEMO-001', 'CUST-DEMO-007', 'Growth',            'standard',   'active',  3500.00,  42000.00,  '2026-11-30'::DATE UNION ALL
+    SELECT 'SUB-DEMO-008', 'ORG-DEMO-001', 'CUST-DEMO-008', 'Enterprise Suite',  'enterprise', 'cancelled', 6250.00, 75000.00, '2026-03-31'::DATE UNION ALL
+    SELECT 'SUB-DEMO-009', 'ORG-DEMO-001', 'CUST-DEMO-009', 'Growth',            'standard',   'active',  5000.00,  60000.00,  '2027-02-28'::DATE UNION ALL
+    SELECT 'SUB-DEMO-010', 'ORG-DEMO-001', 'CUST-DEMO-010', 'Enterprise Suite',  'enterprise', 'active',  12500.00, 150000.00, '2026-10-31'::DATE
+) src ON (tgt.subscription_id = src.subscription_id)
+WHEN NOT MATCHED THEN INSERT
+    (subscription_id, org_id, customer_id, plan_name, plan_tier, status, mrr, arr, renewal_date)
+    VALUES (src.subscription_id, src.org_id, src.customer_id, src.plan_name, src.plan_tier, src.status, src.mrr, src.arr, src.renewal_date)
+WHEN MATCHED THEN UPDATE SET status = src.status, mrr = src.mrr, arr = src.arr;
+
+MERGE INTO CORE.CONTRACTS tgt
+USING (
+    SELECT 'CONT-DEMO-001' AS contract_id, 'ORG-DEMO-001' AS org_id, 'CUST-DEMO-001' AS customer_id, 'Contrato Acme Corp 2026'      AS contract_name, 120000.00 AS contract_value, '2026-01-01'::DATE AS start_date, '2026-12-31'::DATE AS end_date, TRUE  AS auto_renewal, 'active' AS status UNION ALL
+    SELECT 'CONT-DEMO-002', 'ORG-DEMO-001', 'CUST-DEMO-002', 'Contrato Beta Saúde 2026',      95000.00, '2025-10-01'::DATE, '2026-09-30'::DATE, FALSE, 'active'  UNION ALL
+    SELECT 'CONT-DEMO-003', 'ORG-DEMO-001', 'CUST-DEMO-003', 'Contrato Gama Retail 2027',     48000.00, '2026-04-01'::DATE, '2027-03-31'::DATE, TRUE,  'active'  UNION ALL
+    SELECT 'CONT-DEMO-004', 'ORG-DEMO-001', 'CUST-DEMO-004', 'Contrato Delta Fintech 2026',  200000.00, '2025-09-01'::DATE, '2026-08-31'::DATE, FALSE, 'active'  UNION ALL
+    SELECT 'CONT-DEMO-005', 'ORG-DEMO-001', 'CUST-DEMO-005', 'Contrato Epsilon Tech 2027',    36000.00, '2026-07-01'::DATE, '2027-06-30'::DATE, TRUE,  'active'  UNION ALL
+    SELECT 'CONT-DEMO-006', 'ORG-DEMO-001', 'CUST-DEMO-006', 'Contrato Zeta Log. 2027',       18000.00, '2026-02-01'::DATE, '2027-01-31'::DATE, TRUE,  'active'  UNION ALL
+    SELECT 'CONT-DEMO-007', 'ORG-DEMO-001', 'CUST-DEMO-007', 'Contrato Eta Educação 2026',    42000.00, '2025-12-01'::DATE, '2026-11-30'::DATE, FALSE, 'active'  UNION ALL
+    SELECT 'CONT-DEMO-008', 'ORG-DEMO-001', 'CUST-DEMO-008', 'Contrato Theta Energia 2026',   75000.00, '2025-04-01'::DATE, '2026-03-31'::DATE, FALSE, 'expired' UNION ALL
+    SELECT 'CONT-DEMO-009', 'ORG-DEMO-001', 'CUST-DEMO-009', 'Contrato Iota Seguros 2027',    60000.00, '2026-03-01'::DATE, '2027-02-28'::DATE, TRUE,  'active'  UNION ALL
+    SELECT 'CONT-DEMO-010', 'ORG-DEMO-001', 'CUST-DEMO-010', 'Contrato Kappa Telecom 2026',  150000.00, '2025-11-01'::DATE, '2026-10-31'::DATE, TRUE,  'active'
+) src ON (tgt.contract_id = src.contract_id)
+WHEN NOT MATCHED THEN INSERT
+    (contract_id, org_id, customer_id, contract_name, contract_value, start_date, end_date, auto_renewal, status)
+    VALUES (src.contract_id, src.org_id, src.customer_id, src.contract_name, src.contract_value, src.start_date, src.end_date, src.auto_renewal, src.status)
+WHEN MATCHED THEN UPDATE SET status = src.status, contract_value = src.contract_value;
+
+MERGE INTO CORE.TICKETS tgt
+USING (
+    SELECT 'TICK-DEMO-001' AS ticket_id, 'ORG-DEMO-001' AS org_id, 'CUST-DEMO-002' AS customer_id, 'Integração API falhando em produção'          AS subject, 'open'     AS status, 'urgent' AS priority, TRUE  AS sla_breach, -0.65 AS sentiment_score, 'negative' AS sentiment_label UNION ALL
+    SELECT 'TICK-DEMO-002', 'ORG-DEMO-001', 'CUST-DEMO-004', 'Dados de relatório desatualizados',          'open',     'high',   TRUE,  -0.50, 'negative' UNION ALL
+    SELECT 'TICK-DEMO-003', 'ORG-DEMO-001', 'CUST-DEMO-004', 'Dashboard não carrega para equipe de vendas', 'open',    'urgent', FALSE, -0.72, 'negative' UNION ALL
+    SELECT 'TICK-DEMO-004', 'ORG-DEMO-001', 'CUST-DEMO-001', 'Dúvida sobre exportação em CSV',             'resolved', 'low',    FALSE, 0.45,  'positive' UNION ALL
+    SELECT 'TICK-DEMO-005', 'ORG-DEMO-001', 'CUST-DEMO-003', 'Lentidão nas queries de relatório',          'open',     'medium', FALSE, -0.20, 'negative' UNION ALL
+    SELECT 'TICK-DEMO-006', 'ORG-DEMO-001', 'CUST-DEMO-005', 'Solicitação de novo recurso — filtro por data', 'open',  'low',    FALSE, 0.15,  'neutral'  UNION ALL
+    SELECT 'TICK-DEMO-007', 'ORG-DEMO-001', 'CUST-DEMO-007', 'Configuração de SSO com Okta',              'resolved', 'medium', FALSE, 0.30,  'neutral'  UNION ALL
+    SELECT 'TICK-DEMO-008', 'ORG-DEMO-001', 'CUST-DEMO-009', 'Permissões de usuário incorretas',          'open',     'high',   FALSE, -0.35, 'negative' UNION ALL
+    SELECT 'TICK-DEMO-009', 'ORG-DEMO-001', 'CUST-DEMO-010', 'Erro ao importar arquivo de dados grande',  'open',     'medium', FALSE, -0.18, 'negative' UNION ALL
+    SELECT 'TICK-DEMO-010', 'ORG-DEMO-001', 'CUST-DEMO-006', 'Onboarding — dúvida sobre conectores',      'resolved', 'low',    FALSE, 0.55,  'positive'
+) src ON (tgt.ticket_id = src.ticket_id)
+WHEN NOT MATCHED THEN INSERT
+    (ticket_id, org_id, customer_id, subject, status, priority, sla_breach, sentiment_score, sentiment_label)
+    VALUES (src.ticket_id, src.org_id, src.customer_id, src.subject, src.status, src.priority, src.sla_breach, src.sentiment_score, src.sentiment_label)
+WHEN MATCHED THEN UPDATE SET status = src.status, sla_breach = src.sla_breach;
+
+MERGE INTO CORE.PRODUCT_EVENTS tgt
+USING (
+    SELECT 'EVT-DEMO-001' AS event_id, 'ORG-DEMO-001' AS org_id, 'CUST-DEMO-001' AS customer_id, 'dashboard_view'     AS event_type, 'Executive Command' AS feature_name, DATEADD('day', -2,  CURRENT_TIMESTAMP()) AS occurred_at UNION ALL
+    SELECT 'EVT-DEMO-002', 'ORG-DEMO-001', 'CUST-DEMO-001', 'ai_chat',           'Cortex AI Chat',    DATEADD('day', -1,  CURRENT_TIMESTAMP()) UNION ALL
+    SELECT 'EVT-DEMO-003', 'ORG-DEMO-001', 'CUST-DEMO-001', 'report_export',     'Reports',           DATEADD('day', -5,  CURRENT_TIMESTAMP()) UNION ALL
+    SELECT 'EVT-DEMO-004', 'ORG-DEMO-001', 'CUST-DEMO-003', 'dashboard_view',    'Customer 360',      DATEADD('day', -3,  CURRENT_TIMESTAMP()) UNION ALL
+    SELECT 'EVT-DEMO-005', 'ORG-DEMO-001', 'CUST-DEMO-003', 'filter_applied',    'Filters',           DATEADD('day', -4,  CURRENT_TIMESTAMP()) UNION ALL
+    SELECT 'EVT-DEMO-006', 'ORG-DEMO-001', 'CUST-DEMO-005', 'dashboard_view',    'Executive Command', DATEADD('day', -1,  CURRENT_TIMESTAMP()) UNION ALL
+    SELECT 'EVT-DEMO-007', 'ORG-DEMO-001', 'CUST-DEMO-005', 'agent_invocation',  'AI Chat',           DATEADD('day', -2,  CURRENT_TIMESTAMP()) UNION ALL
+    SELECT 'EVT-DEMO-008', 'ORG-DEMO-001', 'CUST-DEMO-006', 'dashboard_view',    'Customer 360',      DATEADD('day', -6,  CURRENT_TIMESTAMP()) UNION ALL
+    SELECT 'EVT-DEMO-009', 'ORG-DEMO-001', 'CUST-DEMO-007', 'report_export',     'Reports',           DATEADD('day', -2,  CURRENT_TIMESTAMP()) UNION ALL
+    SELECT 'EVT-DEMO-010', 'ORG-DEMO-001', 'CUST-DEMO-007', 'agent_invocation',  'Cortex AI Chat',    DATEADD('day', -3,  CURRENT_TIMESTAMP()) UNION ALL
+    SELECT 'EVT-DEMO-011', 'ORG-DEMO-001', 'CUST-DEMO-009', 'dashboard_view',    'Executive Command', DATEADD('day', -1,  CURRENT_TIMESTAMP()) UNION ALL
+    SELECT 'EVT-DEMO-012', 'ORG-DEMO-001', 'CUST-DEMO-009', 'ai_chat',           'Cortex AI Chat',    DATEADD('day', -4,  CURRENT_TIMESTAMP()) UNION ALL
+    SELECT 'EVT-DEMO-013', 'ORG-DEMO-001', 'CUST-DEMO-010', 'dashboard_view',    'Executive Command', DATEADD('day', -2,  CURRENT_TIMESTAMP()) UNION ALL
+    SELECT 'EVT-DEMO-014', 'ORG-DEMO-001', 'CUST-DEMO-010', 'report_export',     'Reports',           DATEADD('day', -5,  CURRENT_TIMESTAMP()) UNION ALL
+    SELECT 'EVT-DEMO-015', 'ORG-DEMO-001', 'CUST-DEMO-002', 'dashboard_view',    'Customer 360',      DATEADD('day', -10, CURRENT_TIMESTAMP()) UNION ALL
+    SELECT 'EVT-DEMO-016', 'ORG-DEMO-001', 'CUST-DEMO-004', 'dashboard_view',    'Executive Command', DATEADD('day', -15, CURRENT_TIMESTAMP()) UNION ALL
+    SELECT 'EVT-DEMO-017', 'ORG-DEMO-001', 'CUST-DEMO-001', 'dashboard_view',    'Document Intel.',   DATEADD('day', -7,  CURRENT_TIMESTAMP()) UNION ALL
+    SELECT 'EVT-DEMO-018', 'ORG-DEMO-001', 'CUST-DEMO-003', 'agent_invocation',  'Cortex AI Chat',    DATEADD('day', -8,  CURRENT_TIMESTAMP()) UNION ALL
+    SELECT 'EVT-DEMO-019', 'ORG-DEMO-001', 'CUST-DEMO-006', 'ai_chat',           'Cortex AI Chat',    DATEADD('day', -9,  CURRENT_TIMESTAMP()) UNION ALL
+    SELECT 'EVT-DEMO-020', 'ORG-DEMO-001', 'CUST-DEMO-010', 'agent_invocation',  'AI Chat',           DATEADD('day', -3,  CURRENT_TIMESTAMP())
+) src ON (tgt.event_id = src.event_id)
+WHEN NOT MATCHED THEN INSERT
+    (event_id, org_id, customer_id, event_type, feature_name, occurred_at)
+    VALUES (src.event_id, src.org_id, src.customer_id, src.event_type, src.feature_name, src.occurred_at)
+WHEN MATCHED THEN UPDATE SET feature_name = src.feature_name;
+
+MERGE INTO AI.CHURN_SCORES tgt
+USING (
+    SELECT 'SCORE-DEMO-001' AS score_id, 'ORG-DEMO-001' AS org_id, 'CUST-DEMO-001' AS customer_id, 0.1500 AS churn_probability, 'LOW'    AS risk_level, PARSE_JSON('["baixo_engajamento_inicial","perfil_consolidado"]')          AS top_drivers, 'Manter cadência padrão e monitorar próxima renovação'                                   AS recommended_action, 18000.00 AS expected_revenue_at_risk, '1.0.0-lr' AS model_version UNION ALL
+    SELECT 'SCORE-DEMO-002', 'ORG-DEMO-001', 'CUST-DEMO-002', 0.7200, 'HIGH',   PARSE_JSON('["multiplas_violacoes_sla","nps_muito_baixo","acumulo_de_tickets"]'),        'Escalar para time de CS sênior e revisar SLA',                                          68400.00,  '1.0.0-lr' UNION ALL
+    SELECT 'SCORE-DEMO-003', 'ORG-DEMO-001', 'CUST-DEMO-003', 0.2200, 'LOW',    PARSE_JSON('["perfil_de_risco_moderado"]'),                                              'Manter cadência padrão e monitorar próxima renovação',                                  10560.00,  '1.0.0-lr' UNION ALL
+    SELECT 'SCORE-DEMO-004', 'ORG-DEMO-001', 'CUST-DEMO-004', 0.8100, 'HIGH',   PARSE_JSON('["multiplas_violacoes_sla","inatividade_prolongada","nps_muito_baixo"]'),    'Contato imediato do CSM + oferta de desconto de retenção',                             162000.00, '1.0.0-lr' UNION ALL
+    SELECT 'SCORE-DEMO-005', 'ORG-DEMO-001', 'CUST-DEMO-005', 0.3800, 'MEDIUM', PARSE_JSON('["perfil_de_risco_moderado","baixo_engajamento"]'),                          'Aumentar cadência de contato e revisar health score mensalmente',                       13680.00,  '1.0.0-lr' UNION ALL
+    SELECT 'SCORE-DEMO-006', 'ORG-DEMO-001', 'CUST-DEMO-006', 0.1200, 'LOW',    PARSE_JSON('["perfil_de_risco_moderado"]'),                                              'Manter cadência padrão e monitorar próxima renovação',                                   2160.00,   '1.0.0-lr' UNION ALL
+    SELECT 'SCORE-DEMO-007', 'ORG-DEMO-001', 'CUST-DEMO-007', 0.1900, 'LOW',    PARSE_JSON('["perfil_de_risco_moderado"]'),                                              'Manter cadência padrão e monitorar próxima renovação',                                   7980.00,   '1.0.0-lr' UNION ALL
+    SELECT 'SCORE-DEMO-009', 'ORG-DEMO-001', 'CUST-DEMO-009', 0.2900, 'LOW',    PARSE_JSON('["perfil_de_risco_moderado"]'),                                              'Manter cadência padrão e monitorar próxima renovação',                                  17400.00,  '1.0.0-lr' UNION ALL
+    SELECT 'SCORE-DEMO-010', 'ORG-DEMO-001', 'CUST-DEMO-010', 0.5500, 'MEDIUM', PARSE_JSON('["baixo_engajamento","health_score_crítico"]'),                              'Realizar NPS follow-up e coletar feedback detalhado',                                   82500.00,  '1.0.0-lr'
+) src ON (tgt.score_id = src.score_id)
+WHEN NOT MATCHED THEN INSERT
+    (score_id, org_id, customer_id, churn_probability, risk_level, top_drivers, recommended_action, expected_revenue_at_risk, model_version)
+    VALUES (src.score_id, src.org_id, src.customer_id, src.churn_probability, src.risk_level, src.top_drivers, src.recommended_action, src.expected_revenue_at_risk, src.model_version)
+WHEN MATCHED THEN UPDATE SET churn_probability = src.churn_probability, risk_level = src.risk_level,
+    top_drivers = src.top_drivers, recommended_action = src.recommended_action,
+    expected_revenue_at_risk = src.expected_revenue_at_risk, scored_at = CURRENT_TIMESTAMP();
+
+MERGE INTO AI.RECOMMENDATIONS tgt
+USING (
+    SELECT 'REC-DEMO-001' AS recommendation_id, 'ORG-DEMO-001' AS org_id, 'CUST-DEMO-001' AS entity_id, 'customer' AS entity_type, 'upsell'     AS recommendation_type, 'HIGH'   AS priority, 'Propor upgrade para Enterprise Suite Plus com módulo de BI avançado'             AS recommendation_text, 24000.00 AS expected_impact_usd, 0.82 AS confidence_score, 'CSM'   AS owner_role, 'pending' AS status, TRUE AS is_active UNION ALL
+    SELECT 'REC-DEMO-002', 'ORG-DEMO-001', 'CUST-DEMO-003', 'customer', 'expansion',  'MEDIUM', 'Adicionar 5 novos usuários ao plano Growth após adoção consistente',             12000.00, 0.71, 'Sales', 'pending', TRUE UNION ALL
+    SELECT 'REC-DEMO-003', 'ORG-DEMO-001', 'CUST-DEMO-005', 'customer', 'upsell',     'MEDIUM', 'Apresentar módulo de Document Intelligence — uso frequente detectado',            9600.00,  0.65, 'CSM',   'pending', TRUE UNION ALL
+    SELECT 'REC-DEMO-004', 'ORG-DEMO-001', 'CUST-DEMO-007', 'customer', 'renewal',    'HIGH',   'Iniciar negociação de renovação 90 dias antes — NPS alto, ótimo momento',        42000.00, 0.90, 'Sales', 'pending', TRUE UNION ALL
+    SELECT 'REC-DEMO-005', 'ORG-DEMO-001', 'CUST-DEMO-010', 'customer', 'expansion',  'LOW',    'Oferecer pacote adicional de Cortex AI tokens — alta utilização observada',       15000.00, 0.58, 'CSM',   'pending', TRUE
+) src ON (tgt.recommendation_id = src.recommendation_id)
+WHEN NOT MATCHED THEN INSERT
+    (recommendation_id, org_id, entity_id, entity_type, recommendation_type, priority, recommendation_text, expected_impact_usd, confidence_score, owner_role, status, is_active)
+    VALUES (src.recommendation_id, src.org_id, src.entity_id, src.entity_type, src.recommendation_type, src.priority, src.recommendation_text, src.expected_impact_usd, src.confidence_score, src.owner_role, src.status, src.is_active)
+WHEN MATCHED THEN UPDATE SET status = src.status;
+
+MERGE INTO CORE.TRANSACTIONS tgt
+USING (
+    SELECT 'TRX-DEMO-001' AS transaction_id, 'ORG-DEMO-001' AS org_id, 'CUST-DEMO-001' AS customer_id, 'new_contract' AS transaction_type, 120000.00 AS amount, 'completed' AS status, '2026-01-01'::DATE AS transaction_date UNION ALL
+    SELECT 'TRX-DEMO-002', 'ORG-DEMO-001', 'CUST-DEMO-002', 'new_contract', 95000.00,  'completed', '2025-10-01'::DATE UNION ALL
+    SELECT 'TRX-DEMO-003', 'ORG-DEMO-001', 'CUST-DEMO-003', 'new_contract', 48000.00,  'completed', '2026-04-01'::DATE UNION ALL
+    SELECT 'TRX-DEMO-004', 'ORG-DEMO-001', 'CUST-DEMO-004', 'new_contract', 200000.00, 'completed', '2025-09-01'::DATE UNION ALL
+    SELECT 'TRX-DEMO-005', 'ORG-DEMO-001', 'CUST-DEMO-005', 'new_contract', 36000.00,  'completed', '2026-07-01'::DATE UNION ALL
+    SELECT 'TRX-DEMO-006', 'ORG-DEMO-001', 'CUST-DEMO-006', 'new_contract', 18000.00,  'completed', '2026-02-01'::DATE UNION ALL
+    SELECT 'TRX-DEMO-007', 'ORG-DEMO-001', 'CUST-DEMO-007', 'new_contract', 42000.00,  'completed', '2025-12-01'::DATE UNION ALL
+    SELECT 'TRX-DEMO-008', 'ORG-DEMO-001', 'CUST-DEMO-008', 'churn',        75000.00,  'completed', '2026-03-31'::DATE UNION ALL
+    SELECT 'TRX-DEMO-009', 'ORG-DEMO-001', 'CUST-DEMO-009', 'new_contract', 60000.00,  'completed', '2026-03-01'::DATE UNION ALL
+    SELECT 'TRX-DEMO-010', 'ORG-DEMO-001', 'CUST-DEMO-010', 'new_contract', 150000.00, 'completed', '2025-11-01'::DATE UNION ALL
+    SELECT 'TRX-DEMO-011', 'ORG-DEMO-001', 'CUST-DEMO-001', 'upsell',       12000.00,  'completed', '2026-03-15'::DATE UNION ALL
+    SELECT 'TRX-DEMO-012', 'ORG-DEMO-001', 'CUST-DEMO-003', 'expansion',    8000.00,   'completed', '2026-05-01'::DATE UNION ALL
+    SELECT 'TRX-DEMO-013', 'ORG-DEMO-001', 'CUST-DEMO-007', 'renewal',      42000.00,  'completed', '2024-12-01'::DATE
+) src ON (tgt.transaction_id = src.transaction_id)
+WHEN NOT MATCHED THEN INSERT
+    (transaction_id, org_id, customer_id, transaction_type, amount, status, transaction_date)
+    VALUES (src.transaction_id, src.org_id, src.customer_id, src.transaction_type, src.amount, src.status, src.transaction_date)
+WHEN MATCHED THEN UPDATE SET status = src.status;
+
+-- Demo data: CORE.ACCOUNTS
+MERGE INTO CORE.ACCOUNTS tgt
+USING (
+    SELECT 'ACC-DEMO-001' AS account_id, 'ORG-DEMO-001' AS org_id, 'CUST-DEMO-001' AS customer_id, 'Acme Corp'          AS account_name, 'Enterprise'  AS account_type, 'Technology' AS industry, 5000 AS employee_count, 500000000.00 AS annual_revenue UNION ALL
+    SELECT 'ACC-DEMO-002', 'ORG-DEMO-001', 'CUST-DEMO-002', 'Beta Saude S.A.',   'Enterprise',  'Healthcare',   2000,  180000000.00 UNION ALL
+    SELECT 'ACC-DEMO-003', 'ORG-DEMO-001', 'CUST-DEMO-003', 'Gama Retail Ltda',  'Mid-Market',  'Retail',        800,   75000000.00 UNION ALL
+    SELECT 'ACC-DEMO-004', 'ORG-DEMO-001', 'CUST-DEMO-004', 'Delta Finance',     'Enterprise',  'Financial',   10000, 2000000000.00 UNION ALL
+    SELECT 'ACC-DEMO-005', 'ORG-DEMO-001', 'CUST-DEMO-005', 'Epsilon Educacao',  'Mid-Market',  'Education',     300,   30000000.00
+) src ON (tgt.account_id = src.account_id)
+WHEN NOT MATCHED THEN INSERT
+    (account_id, org_id, customer_id, account_name, account_type, industry, employee_count, annual_revenue)
+    VALUES (src.account_id, src.org_id, src.customer_id, src.account_name, src.account_type, src.industry, src.employee_count, src.annual_revenue)
+WHEN MATCHED THEN UPDATE SET account_name = src.account_name;
+
+-- Demo data: CORE.PRODUCTS
+MERGE INTO CORE.PRODUCTS tgt
+USING (
+    SELECT 'PROD-001' AS product_id, 'ORG-DEMO-001' AS org_id, 'NEXUS AI DataOps — Enterprise'   AS product_name, 'Platform'   AS product_category, 10000.00 AS unit_price, TRUE AS is_active UNION ALL
+    SELECT 'PROD-002', 'ORG-DEMO-001', 'NEXUS AI DataOps — Growth',    'Platform',   4000.00,  TRUE UNION ALL
+    SELECT 'PROD-003', 'ORG-DEMO-001', 'NEXUS AI DataOps — Starter',   'Platform',   1500.00,  TRUE UNION ALL
+    SELECT 'PROD-004', 'ORG-DEMO-001', 'Vertical Pack — Financeiro',   'Add-on',     2000.00,  TRUE UNION ALL
+    SELECT 'PROD-005', 'ORG-DEMO-001', 'Vertical Pack — Varejo',       'Add-on',     2000.00,  TRUE UNION ALL
+    SELECT 'PROD-006', 'ORG-DEMO-001', 'Cortex AI Tokens — 1M',        'Consumption', 500.00,  TRUE
+) src ON (tgt.product_id = src.product_id)
+WHEN NOT MATCHED THEN INSERT
+    (product_id, org_id, product_name, product_category, unit_price, is_active)
+    VALUES (src.product_id, src.org_id, src.product_name, src.product_category, src.unit_price, src.is_active)
+WHEN MATCHED THEN UPDATE SET unit_price = src.unit_price;
+
+-- Demo data: CORE.INTERACTIONS
+MERGE INTO CORE.INTERACTIONS tgt
+USING (
+    SELECT 'INT-DEMO-001' AS interaction_id, 'ORG-DEMO-001' AS org_id, 'CUST-DEMO-001' AS customer_id, 'email'   AS channel, 'inbound'  AS direction, 'Interesse em upgrade Enterprise Plus' AS subject,  0.75 AS sentiment_score, 'qualified' AS outcome, DATEADD('day', -5, CURRENT_TIMESTAMP()) AS occurred_at UNION ALL
+    SELECT 'INT-DEMO-002', 'ORG-DEMO-001', 'CUST-DEMO-002', 'call',    'outbound', 'QBR Q3 — revisao de SLA',                           -0.20, 'follow_up', DATEADD('day', -3, CURRENT_TIMESTAMP()) UNION ALL
+    SELECT 'INT-DEMO-003', 'ORG-DEMO-001', 'CUST-DEMO-003', 'chat',    'inbound',  'Duvida sobre integracao com Salesforce',              0.50, 'resolved',  DATEADD('day', -2, CURRENT_TIMESTAMP()) UNION ALL
+    SELECT 'INT-DEMO-004', 'ORG-DEMO-001', 'CUST-DEMO-004', 'meeting', 'outbound', 'Executive Business Review — Q2 2026',                0.30, 'committed', DATEADD('day', -7, CURRENT_TIMESTAMP()) UNION ALL
+    SELECT 'INT-DEMO-005', 'ORG-DEMO-001', 'CUST-DEMO-005', 'email',   'inbound',  'Solicitacao de desconto na renovacao',               -0.10, 'pending',   DATEADD('day', -1, CURRENT_TIMESTAMP())
+) src ON (tgt.interaction_id = src.interaction_id)
+WHEN NOT MATCHED THEN INSERT
+    (interaction_id, org_id, customer_id, channel, direction, subject, sentiment_score, outcome, occurred_at)
+    VALUES (src.interaction_id, src.org_id, src.customer_id, src.channel, src.direction, src.subject, src.sentiment_score, src.outcome, src.occurred_at)
+WHEN MATCHED THEN UPDATE SET subject = src.subject;
+
+-- Demo data: MART.REVENUE_OPPORTUNITY_SCORE
+MERGE INTO MART.REVENUE_OPPORTUNITY_SCORE tgt
+USING (
+    SELECT 'ROS-DEMO-001' AS score_id, 'CUST-DEMO-001' AS customer_id, 'ORG-DEMO-001' AS org_id, 0.85 AS opportunity_score, 'upsell'    AS opportunity_type, 30000.00 AS estimated_revenue_usd, 0.90 AS confidence UNION ALL
+    SELECT 'ROS-DEMO-003', 'CUST-DEMO-003', 'ORG-DEMO-001', 0.70, 'upsell',    12000.00, 0.78 UNION ALL
+    SELECT 'ROS-DEMO-005', 'CUST-DEMO-005', 'ORG-DEMO-001', 0.55, 'expansion',  3600.00, 0.62 UNION ALL
+    SELECT 'ROS-DEMO-007', 'CUST-DEMO-007', 'ORG-DEMO-001', 0.80, 'upsell',    10500.00, 0.81 UNION ALL
+    SELECT 'ROS-DEMO-009', 'CUST-DEMO-009', 'ORG-DEMO-001', 0.75, 'expansion', 15000.00, 0.77 UNION ALL
+    SELECT 'ROS-DEMO-010', 'CUST-DEMO-010', 'ORG-DEMO-001', 0.20, 'retention',  7500.00, 0.45
+) src ON (tgt.score_id = src.score_id)
+WHEN NOT MATCHED THEN INSERT
+    (score_id, customer_id, org_id, opportunity_score, opportunity_type, estimated_revenue_usd, confidence)
+    VALUES (src.score_id, src.customer_id, src.org_id, src.opportunity_score, src.opportunity_type, src.estimated_revenue_usd, src.confidence)
+WHEN MATCHED THEN UPDATE SET opportunity_score = src.opportunity_score;
+
+-- Versão v2.0.0
+MERGE INTO CONFIG.APP_SETTINGS t
+USING (SELECT 'app_version' AS setting_key, '2.0.0' AS setting_value, 'NEXUS AI DataOps v2.0 — Data Onboarding & KBS' AS description) s
+ON t.setting_key = s.setting_key
+WHEN MATCHED THEN UPDATE SET setting_value = '2.0.0', updated_at = CURRENT_TIMESTAMP()
+WHEN NOT MATCHED THEN INSERT (setting_key, setting_value, description) VALUES (s.setting_key, s.setting_value, s.description);

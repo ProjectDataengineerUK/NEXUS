@@ -1,14 +1,46 @@
 manifest_version: 1
 
 version:
-  name: v1_0
-  label: "1.0.0"
-  comment: "NEXUS AI DataOps v1.0 — Enterprise AI Command Center for Snowflake"
+  name: v2_0
+  label: "2.0.0"
+  comment: "NEXUS AI DataOps v2.0 — Data Onboarding, Multi-tenancy & KBS"
 
 artifacts:
   setup_script: setup_script.sql
   readme: readme.md
   default_streamlit: CORE.NEXUS_UI
+
+privileges:
+  - EXECUTE TASK
+  - EXECUTE MANAGED TASK
+
+references:
+  - name: customer_table
+    label: "Tabela de Clientes"
+    description: >
+      Mapeie sua tabela principal de clientes. Colunas minimas: customer_id, email, created_at.
+      O NEXUS usa esta tabela para calcular churn score e health score.
+    object_type: TABLE
+    register_callback: core.register_reference
+    required: false
+
+  - name: transactions_table
+    label: "Tabela de Transacoes"
+    description: >
+      Mapeie sua tabela de transacoes ou faturamento. Colunas minimas: transaction_id,
+      customer_id, amount, created_at.
+    object_type: TABLE
+    register_callback: core.register_reference
+    required: false
+
+  - name: events_table
+    label: "Tabela de Eventos de Produto"
+    description: >
+      Eventos de uso do produto para analise de engajamento. Colunas minimas:
+      user_id, event_name, occurred_at.
+    object_type: TABLE
+    register_callback: core.register_reference
+    required: false
 
 configuration:
   log_level: INFO
