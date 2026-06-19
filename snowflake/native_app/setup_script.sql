@@ -76,7 +76,7 @@ CREATE TABLE IF NOT EXISTS CORE.TICKETS (
     subject         VARCHAR(1000),
     status          VARCHAR(50)   DEFAULT 'open',
     priority        VARCHAR(20)   DEFAULT 'medium',
-    sla_breached    BOOLEAN       DEFAULT FALSE,
+    sla_breach      BOOLEAN       DEFAULT FALSE,
     sentiment_score DECIMAL(4,3),
     created_at      TIMESTAMP_TZ  DEFAULT CURRENT_TIMESTAMP(),
     resolved_at     TIMESTAMP_TZ,
@@ -86,6 +86,7 @@ CREATE TABLE IF NOT EXISTS CORE.TICKETS (
 -- Migrations: garante colunas de sentimento adicionadas após versões anteriores
 ALTER TABLE CORE.TICKETS ADD COLUMN IF NOT EXISTS sentiment_score  DECIMAL(4,3);
 ALTER TABLE CORE.TICKETS ADD COLUMN IF NOT EXISTS sentiment_label  VARCHAR(20);
+ALTER TABLE CORE.TICKETS ADD COLUMN IF NOT EXISTS sla_breach       BOOLEAN DEFAULT FALSE;
 
 CREATE TABLE IF NOT EXISTS CORE.PRODUCT_EVENTS (
     event_id        VARCHAR(36)   NOT NULL DEFAULT UUID_STRING(),
@@ -109,6 +110,21 @@ CREATE TABLE IF NOT EXISTS CORE.DOCUMENTS (
     summary           TEXT,
     created_at        TIMESTAMP_TZ DEFAULT CURRENT_TIMESTAMP(),
     PRIMARY KEY (document_id)
+);
+
+CREATE TABLE IF NOT EXISTS CORE.CONTRACTS (
+    contract_id    VARCHAR(36)   NOT NULL DEFAULT UUID_STRING(),
+    org_id         VARCHAR(36)   NOT NULL,
+    customer_id    VARCHAR(36)   NOT NULL,
+    contract_name  VARCHAR(500)  NOT NULL,
+    contract_value DECIMAL(18,2),
+    start_date     DATE,
+    end_date       DATE,
+    auto_renewal   BOOLEAN       DEFAULT FALSE,
+    status         VARCHAR(50)   DEFAULT 'active',
+    created_at     TIMESTAMP_TZ  DEFAULT CURRENT_TIMESTAMP(),
+    updated_at     TIMESTAMP_TZ  DEFAULT CURRENT_TIMESTAMP(),
+    PRIMARY KEY (contract_id)
 );
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -402,7 +418,13 @@ SELECT
     cs.recommended_action,
     cs.top_drivers,
     cs.scored_at,
-    ROUND((1.0 - COALESCE(cs.churn_probability, 0.5)) * 100, 0)  AS health_score
+    ROUND((1.0 - COALESCE(cs.churn_probability, 0.5)) * 100, 0)  AS health_score,
+    (SELECT MIN(s.renewal_date)
+     FROM CORE.SUBSCRIPTIONS s
+     WHERE s.customer_id = c.customer_id
+       AND s.org_id = c.org_id
+       AND s.renewal_date >= CURRENT_DATE()
+       AND s.status = 'active')                                    AS nearest_renewal_date
 FROM CORE.CUSTOMERS c
 LEFT JOIN (
     SELECT *,
@@ -480,6 +502,8 @@ GRANT SELECT ON VIEW  AI.V_CONTRACT_INTELLIGENCE    TO APPLICATION ROLE NEXUS_VI
 GRANT SELECT, INSERT ON TABLE AI.AGENT_SESSIONS     TO APPLICATION ROLE NEXUS_VIEWER;
 GRANT SELECT, INSERT ON TABLE AI.AGENT_MESSAGES     TO APPLICATION ROLE NEXUS_VIEWER;
 GRANT SELECT, INSERT ON TABLE CORE.APPROVAL_QUEUE   TO APPLICATION ROLE NEXUS_ANALYST;
+GRANT SELECT ON TABLE  CORE.CONTRACTS              TO APPLICATION ROLE NEXUS_ANALYST;
+GRANT ALL    ON TABLE  CORE.CONTRACTS              TO APPLICATION ROLE NEXUS_ADMIN;
 GRANT ALL    ON TABLE  CORE.APPROVAL_QUEUE          TO APPLICATION ROLE NEXUS_ADMIN;
 GRANT ALL    ON TABLE  AI.RECOMMENDATIONS           TO APPLICATION ROLE NEXUS_ANALYST;
 

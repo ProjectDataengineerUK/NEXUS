@@ -59,6 +59,9 @@ with st.sidebar:
         "Selecionar cliente",
         options=list(customer_options.keys()),
     )
+    if selected_label is None:
+        st.info("Nenhum cliente encontrado.")
+        st.stop()
     selected_id = customer_options[selected_label]
 
     st.divider()
