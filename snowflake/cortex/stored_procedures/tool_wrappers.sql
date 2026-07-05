@@ -44,7 +44,7 @@ def run(session, recommendation_id: str, new_status: str, acted_by: str) -> str:
 $$;
 
 GRANT USAGE ON PROCEDURE CORE.UPDATE_RECOMMENDATION_STATUS(VARCHAR, VARCHAR, VARCHAR)
-    TO APPLICATION ROLE NEXUS_ANALYST;
+    TO ROLE NEXUS_ANALYST;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- SP 2: Gera resumo executivo de narrativa via Cortex Complete
@@ -98,9 +98,9 @@ Provide a 3-bullet executive summary:"""
 $$;
 
 GRANT USAGE ON PROCEDURE CORE.GENERATE_EXECUTIVE_SUMMARY(VARCHAR, VARCHAR)
-    TO APPLICATION ROLE NEXUS_ANALYST;
+    TO ROLE NEXUS_ANALYST;
 GRANT USAGE ON PROCEDURE CORE.GENERATE_EXECUTIVE_SUMMARY(VARCHAR, VARCHAR)
-    TO APPLICATION ROLE NEXUS_ADMIN;
+    TO ROLE NEXUS_ADMIN;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- SP 3: Registra sincronização com CRM externo (stub)
@@ -137,4 +137,4 @@ def run(session, org_id: str, entity_type: str, entity_id: str,
 $$;
 
 GRANT USAGE ON PROCEDURE CORE.LOG_CRM_SYNC(VARCHAR, VARCHAR, VARCHAR, VARCHAR, VARCHAR, VARCHAR)
-    TO APPLICATION ROLE NEXUS_ANALYST;
+    TO ROLE NEXUS_ANALYST;
