@@ -40,6 +40,16 @@ CREATE TABLE IF NOT EXISTS CORE.PRODUCTS (
     CONSTRAINT pk_products PRIMARY KEY (product_id)
 );
 
+-- Migrations: 04_core_tables.sql já cria CORE.PRODUCTS com um schema mais
+-- antigo (name/category, sem product_name/product_category/description/
+-- billing_model/updated_at) — como roda primeiro, CREATE TABLE IF NOT EXISTS
+-- acima vira no-op nesse caso. Garante as colunas canônicas em qualquer ordem.
+ALTER TABLE CORE.PRODUCTS ADD COLUMN IF NOT EXISTS product_name     VARCHAR(255);
+ALTER TABLE CORE.PRODUCTS ADD COLUMN IF NOT EXISTS product_category VARCHAR(100);
+ALTER TABLE CORE.PRODUCTS ADD COLUMN IF NOT EXISTS description      TEXT;
+ALTER TABLE CORE.PRODUCTS ADD COLUMN IF NOT EXISTS billing_model    VARCHAR(50) DEFAULT 'subscription';
+ALTER TABLE CORE.PRODUCTS ADD COLUMN IF NOT EXISTS updated_at       TIMESTAMP_TZ DEFAULT CURRENT_TIMESTAMP();
+
 COMMENT ON TABLE CORE.PRODUCTS IS 'Catalogo de produtos/planos vendidos pelo provider';
 
 CREATE TABLE IF NOT EXISTS CORE.INTERACTIONS (
@@ -63,6 +73,17 @@ CREATE TABLE IF NOT EXISTS CORE.INTERACTIONS (
 
 COMMENT ON TABLE CORE.INTERACTIONS IS 'Histórico de interações com clientes (emails, calls, meetings)';
 COMMENT ON COLUMN CORE.INTERACTIONS.sentiment_score IS 'Preenchido pelo pipeline de NLP (-1 negativo, 1 positivo)';
+
+-- Migrations: 04_core_tables.sql já cria CORE.INTERACTIONS com um schema mais
+-- antigo (sem account_id/outcome/duration_minutes/owner_user/occurred_at) —
+-- como roda primeiro, CREATE TABLE IF NOT EXISTS acima vira no-op nesse caso.
+-- Garante as colunas canônicas em qualquer ordem (occurred_at é usada por
+-- 12_dynamic_tables_native.sql / DT_CUSTOMER_HEALTH).
+ALTER TABLE CORE.INTERACTIONS ADD COLUMN IF NOT EXISTS account_id       VARCHAR(36);
+ALTER TABLE CORE.INTERACTIONS ADD COLUMN IF NOT EXISTS outcome          VARCHAR(100);
+ALTER TABLE CORE.INTERACTIONS ADD COLUMN IF NOT EXISTS duration_minutes INTEGER;
+ALTER TABLE CORE.INTERACTIONS ADD COLUMN IF NOT EXISTS owner_user       VARCHAR(255);
+ALTER TABLE CORE.INTERACTIONS ADD COLUMN IF NOT EXISTS occurred_at      TIMESTAMP_TZ DEFAULT CURRENT_TIMESTAMP();
 
 -- Aplicar RAP (deve existir no setup_script ou 08_row_access_policies.sql)
 ALTER TABLE CORE.ACCOUNTS     ADD ROW ACCESS POLICY CORE.RAP_ORG_ISOLATION ON (org_id);

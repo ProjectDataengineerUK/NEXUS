@@ -26,13 +26,13 @@ VALUES
 -- CORE.PRODUCTS
 -- ─────────────────────────────────────────────
 INSERT INTO NEXUS_APP.CORE.PRODUCTS
-    (product_id, org_id, name, category, unit_price, currency, is_active)
+    (product_id, org_id, name, category, product_name, product_category, unit_price, currency, is_active)
 VALUES
-    ('PROD-001', 'ORG-DEMO-001', 'NEXUS Intelligence Suite',    'platform',    120000.00, 'USD', TRUE),
-    ('PROD-002', 'ORG-DEMO-001', 'NEXUS Revenue Pack',          'vertical',     36000.00, 'USD', TRUE),
-    ('PROD-003', 'ORG-DEMO-001', 'NEXUS Risk & Compliance Pack','vertical',     48000.00, 'USD', TRUE),
-    ('PROD-004', 'ORG-DEMO-001', 'NEXUS Document Intelligence', 'add-on',       24000.00, 'USD', TRUE),
-    ('PROD-005', 'ORG-DEMO-001', 'NEXUS AI Agents (10 seats)',  'add-on',       60000.00, 'USD', TRUE);
+    ('PROD-001', 'ORG-DEMO-001', 'NEXUS Intelligence Suite',    'platform',    'NEXUS Intelligence Suite',    'platform',    120000.00, 'USD', TRUE),
+    ('PROD-002', 'ORG-DEMO-001', 'NEXUS Revenue Pack',          'vertical',    'NEXUS Revenue Pack',          'vertical',     36000.00, 'USD', TRUE),
+    ('PROD-003', 'ORG-DEMO-001', 'NEXUS Risk & Compliance Pack','vertical',    'NEXUS Risk & Compliance Pack','vertical',     48000.00, 'USD', TRUE),
+    ('PROD-004', 'ORG-DEMO-001', 'NEXUS Document Intelligence', 'add-on',      'NEXUS Document Intelligence', 'add-on',       24000.00, 'USD', TRUE),
+    ('PROD-005', 'ORG-DEMO-001', 'NEXUS AI Agents (10 seats)',  'add-on',      'NEXUS AI Agents (10 seats)',  'add-on',       60000.00, 'USD', TRUE);
 
 -- ─────────────────────────────────────────────
 -- CORE.TRANSACTIONS
