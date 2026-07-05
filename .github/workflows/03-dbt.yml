@@ -1,5 +1,8 @@
 name: "03 · dbt — Pipeline de Transformação"
 
+permissions:
+  contents: read
+
 on:
   # Agendado: todo dia às 04h UTC (após o churn pipeline das 03h)
   schedule:
@@ -21,7 +24,7 @@ on:
       full_refresh:
         description: "Full refresh (--full-refresh)"
         required: false
-        default: "false"
+        default: false
         type: boolean
 
 jobs:
@@ -31,6 +34,8 @@ jobs:
 
     env:
       DBT_TARGET:          ${{ github.event.inputs.target || 'dev' }}
+      DBT_SELECT:          ${{ github.event.inputs.select }}
+      DBT_FULL_REFRESH:    ${{ github.event.inputs.full_refresh }}
       DBT_PROFILES_DIR:    .
       SNOWFLAKE_ACCOUNT:   ${{ secrets.SNOWFLAKE_ACCOUNT }}
       SNOWFLAKE_USER:      ${{ secrets.SNOWFLAKE_USER }}
@@ -41,45 +46,47 @@ jobs:
         working-directory: dbt
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.11"
           cache: pip
 
       - name: Instalar dbt-snowflake
-        run: pip install dbt-snowflake==1.8.*
+        run: pip install dbt-snowflake==1.8.* sqlfluff sqlfluff-templater-dbt
 
       - name: dbt deps
         run: dbt deps
 
+      - name: Lint (sqlfluff)
+        run: sqlfluff lint models --dialect snowflake || true
+
       - name: dbt debug
-        run: dbt debug --target ${{ env.DBT_TARGET }}
+        run: dbt debug --target "$DBT_TARGET"
 
       - name: dbt run
         run: |
-          ARGS="--target ${{ env.DBT_TARGET }}"
-          if [ -n "${{ github.event.inputs.select }}" ]; then
-            ARGS="$ARGS --select ${{ github.event.inputs.select }}"
+          ARGS=(--target "$DBT_TARGET")
+          if [ -n "$DBT_SELECT" ]; then
+            ARGS+=(--select "$DBT_SELECT")
           fi
-          if [ "${{ github.event.inputs.full_refresh }}" = "true" ]; then
-            ARGS="$ARGS --full-refresh"
+          if [ "$DBT_FULL_REFRESH" = "true" ]; then
+            ARGS+=(--full-refresh)
           fi
-          dbt run $ARGS
+          dbt run "${ARGS[@]}"
 
       - name: dbt test
         run: |
-          ARGS="--target ${{ env.DBT_TARGET }}"
-          if [ -n "${{ github.event.inputs.select }}" ]; then
-            ARGS="$ARGS --select ${{ github.event.inputs.select }}"
+          ARGS=(--target "$DBT_TARGET")
+          if [ -n "$DBT_SELECT" ]; then
+            ARGS+=(--select "$DBT_SELECT")
           fi
-          dbt test $ARGS
+          dbt test "${ARGS[@]}"
 
       - name: dbt source freshness
-        run: dbt source freshness --target ${{ env.DBT_TARGET }}
-        continue-on-error: true
+        run: dbt source freshness --target "$DBT_TARGET"
 
       - name: Gerar docs dbt
         if: env.DBT_TARGET == 'prod'
@@ -87,7 +94,7 @@ jobs:
 
       - name: Upload artefatos dbt
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: dbt-artifacts-${{ github.run_id }}
           path: |

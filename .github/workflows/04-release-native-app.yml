@@ -30,18 +30,25 @@ jobs:
       SNOWFLAKE_ACCOUNT:  ${{ secrets.SNOWFLAKE_ACCOUNT }}
       SNOWFLAKE_USER:     ${{ secrets.SNOWFLAKE_USER }}
       SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
+      VERSION_LABEL_INPUT: ${{ github.event.inputs.version_label }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Derivar versão
         id: version
         run: |
-          if [ -n "${{ github.event.inputs.version_label }}" ]; then
-            VERSION="${{ github.event.inputs.version_label }}"
+          if [ -n "$VERSION_LABEL_INPUT" ]; then
+            VERSION="$VERSION_LABEL_INPUT"
           else
             # tag: v1.2.3 → 1_2_3
             VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          # Validação básica: apenas dígitos e pontos (evita input malformado propagar
+          # para o slug da versão do Application Package)
+          if ! [[ "$VERSION" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
+            echo "Versão inválida: '$VERSION' (esperado formato X.Y.Z)" >&2
+            exit 1
           fi
           VERSION_SLUG=$(echo "$VERSION" | tr '.' '_')
           echo "label=$VERSION" >> $GITHUB_OUTPUT
@@ -49,7 +56,7 @@ jobs:
           echo "Version: $VERSION (slug: v${VERSION_SLUG})"
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.11"
 
@@ -243,7 +250,7 @@ jobs:
 
       - name: Criar GitHub Release
         if: github.event_name == 'push'
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |

@@ -1,5 +1,8 @@
 name: "CI · Lint + Tests"
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: [main, "feat/**", "fix/**"]
@@ -25,10 +28,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.11"
           cache: pip
@@ -37,6 +40,8 @@ jobs:
         run: |
           pip install \
             ruff \
+            bandit \
+            pip-audit \
             pytest \
             pytest-cov \
             snowflake-snowpark-python \
@@ -53,6 +58,18 @@ jobs:
             --select E,F,W,I \
             --ignore E501 \
             --output-format=github
+
+      - name: Secret scanning (gitleaks)
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: SAST (bandit)
+        run: |
+          bandit -r app/streamlit snowflake/models snowflake/pipelines -ll -q
+
+      - name: Dependency vulnerability scan (pip-audit)
+        run: pip-audit --strict
 
       - name: Validate YAML configs (agents + semantic models)
         run: |
@@ -89,10 +106,28 @@ jobs:
             --cov-report=term-missing \
             --cov-fail-under=50
 
+      - name: Coverage report — app/streamlit + snowflake/pipelines (informational)
+        # Sem --cov-fail-under: essas árvores hoje só têm testes estruturais
+        # (existência/formato de DAGs, páginas Streamlit), não testes de execução de
+        # linha. Reportamos para visibilidade, mas gatear nelas exigiria escrever
+        # testes de verdade primeiro — impor um threshold aqui só esconderia o
+        # problema atrás de um número artificialmente baixo.
+        run: |
+          pytest tests/python/ \
+            --tb=line -q \
+            --cov=app/streamlit \
+            --cov=snowflake/pipelines \
+            --cov-report=term-missing \
+            --no-cov-on-fail || true
+
       - name: Check SQL test files exist
         run: |
-          test -f tests/sql/test_core_tables.sql && echo "OK: test_core_tables.sql"
-          test -f tests/sql/test_security.sql    && echo "OK: test_security.sql"
+          for f in tests/sql/*.sql; do
+            test -f "$f" && echo "OK: $f"
+          done
+          # Execução real desses testes (contra Snowflake, com dados de demo) roda
+          # no job deploy-dev, após o schema e os dados existirem — ver step
+          # "Executar testes SQL (assertions)" abaixo.
 
   dbt-compile:
     name: "dbt compile (dry run)"
@@ -100,10 +135,10 @@ jobs:
     needs: lint-and-test
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.11"
           cache: pip
@@ -151,14 +186,17 @@ jobs:
       SNOWFLAKE_USER:     ${{ secrets.SNOWFLAKE_USER }}
       SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
       SNOWFLAKE_DATABASE: NEXUS_APP
+      # TODO(security): usa ACCOUNTADMIN + senha. Requer criar uma role de deploy
+      # dedicada (least-privilege) e migrar para key-pair auth — depende de acesso
+      # de admin na conta Snowflake para provisionar, então não foi feito nesta auditoria.
       SNOWFLAKE_ROLE:     ACCOUNTADMIN
       SNOWFLAKE_WAREHOUSE: NEXUS_COMPUTE_WH
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.11"
 
@@ -381,6 +419,95 @@ jobs:
           print("Setup scripts executed.")
           EOF
 
+      - name: Executar testes SQL (assertions)
+        if: ${{ github.event.inputs.skip_sql != 'true' }}
+        run: |
+          python - <<'EOF'
+          import snowflake.connector, os, glob, sys
+
+          conn = snowflake.connector.connect(
+              account=os.environ["SNOWFLAKE_ACCOUNT"],
+              user=os.environ["SNOWFLAKE_USER"],
+              password=os.environ["SNOWFLAKE_PASSWORD"],
+              database=os.environ["SNOWFLAKE_DATABASE"],
+              role=os.environ["SNOWFLAKE_ROLE"],
+              warehouse=os.environ["SNOWFLAKE_WAREHOUSE"],
+          )
+          cs = conn.cursor()
+
+          def split_statements(sql):
+              # Mesmo parser usado no step de setup, para respeitar $$...$$ e strings.
+              stmts, cur = [], []
+              i, n = 0, len(sql)
+              in_dq = in_sq = in_lc = False
+              while i < n:
+                  c = sql[i]
+                  if in_lc:
+                      if c == '\n':
+                          in_lc = False
+                          cur.append('\n')
+                      i += 1
+                      continue
+                  if in_dq:
+                      if c == '$' and i + 1 < n and sql[i + 1] == '$':
+                          cur.append('$$'); i += 2; in_dq = False
+                      else:
+                          cur.append(c); i += 1
+                      continue
+                  if in_sq:
+                      if c == "'":
+                          if i + 1 < n and sql[i + 1] == "'":
+                              cur.append("''"); i += 2
+                          else:
+                              cur.append(c); i += 1; in_sq = False
+                      else:
+                          cur.append(c); i += 1
+                      continue
+                  if c == '-' and i + 1 < n and sql[i + 1] == '-':
+                      in_lc = True; i += 2; continue
+                  if c == '$' and i + 1 < n and sql[i + 1] == '$':
+                      in_dq = True; cur.append('$$'); i += 2; continue
+                  if c == "'":
+                      in_sq = True; cur.append(c); i += 1; continue
+                  if c == ';':
+                      s = ''.join(cur).strip()
+                      if s:
+                          stmts.append(s)
+                      cur = []; i += 1; continue
+                  cur.append(c); i += 1
+              if cur:
+                  s = ''.join(cur).strip()
+                  if s:
+                      stmts.append(s)
+              return stmts
+
+          test_files = sorted(glob.glob("tests/sql/*.sql"))
+          failures = []
+
+          for path in test_files:
+              print(f"  running {path}")
+              with open(path) as f:
+                  raw = f.read()
+              for stmt in split_statements(raw):
+                  if not stmt or stmt.upper().startswith("USE "):
+                      continue
+                  try:
+                      cs.execute(stmt)
+                  except Exception as e:
+                      print(f"    FAILED in {path}: {e}")
+                      failures.append((path, str(e)))
+
+          cs.close()
+          conn.close()
+
+          if failures:
+              print(f"\n{len(failures)} assertion(s) failed:")
+              for path, err in failures:
+                  print(f"  - {path}: {err}")
+              sys.exit(1)
+          print(f"All SQL assertions passed ({len(test_files)} files).")
+          EOF
+
   native-app-dev:
     name: "Native App — dev"
     runs-on: ubuntu-latest
@@ -394,12 +521,14 @@ jobs:
       SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
       # Fail-open em OCSP: runners GitHub Actions podem não alcançar servidores OCSP
       # para certificados GCS (storage.googleapis.com). Sem isso o upload falha com 254007.
+      # TODO(security): validar se um allowlist de rede mais específico (em vez de
+      # fail-open) resolve isso sem enfraquecer a checagem de revogação de certificado.
       SF_OCSP_FAIL_OPEN: "true"
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.11"
 
@@ -424,6 +553,9 @@ jobs:
               f'password      = "{pwd}"',
               'role          = "ACCOUNTADMIN"',
               'warehouse     = "NEXUS_COMPUTE_WH"',
+              # TODO(security): insecure_mode desabilita a checagem de revogação de
+              # certificado (OCSP/CRL) inteira, não só o fail-open. Ver TODO acima
+              # sobre SF_OCSP_FAIL_OPEN antes de manter isso em produção.
               'insecure_mode = true',
           ]
           cfg.write_text("\n".join(lines) + "\n")
@@ -447,13 +579,16 @@ jobs:
       SNOWFLAKE_USER:     ${{ secrets.SNOWFLAKE_PROD_USER }}
       SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PROD_PASSWORD }}
       SNOWFLAKE_DATABASE: NEXUS_APP
+      # TODO(security): usa ACCOUNTADMIN + senha. Requer criar uma role de deploy
+      # dedicada (least-privilege) e migrar para key-pair auth — depende de acesso
+      # de admin na conta Snowflake para provisionar, então não foi feito nesta auditoria.
       SNOWFLAKE_ROLE:     ACCOUNTADMIN
       SNOWFLAKE_WAREHOUSE: NEXUS_COMPUTE_WH
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.11"
       - run: pip install snowflake-connector-python

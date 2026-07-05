@@ -34,15 +34,25 @@ jobs:
         working-directory: terraform/environments/${{ matrix.env }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
+      - name: Terraform fmt (check)
+        run: terraform fmt -check -recursive -diff
+        working-directory: terraform
+
+      - name: IaC security scan (checkov)
+        run: |
+          pip install checkov
+          checkov -d terraform --quiet --compact --framework terraform
+        working-directory: ${{ github.workspace }}
+
       - name: Autenticar no GCP (backend GCS)
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
           project_id:       ${{ vars.GCP_PROJECT }}
@@ -72,7 +82,7 @@ jobs:
 
       - name: Comentar plan no PR
         if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -99,15 +109,15 @@ jobs:
         working-directory: terraform/environments/dev
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
       - name: Autenticar no GCP
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
           project_id:       ${{ vars.GCP_PROJECT }}
@@ -141,15 +151,15 @@ jobs:
         working-directory: terraform/environments/prod
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
       - name: Autenticar no GCP
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
           project_id:       ${{ vars.GCP_PROJECT }}
