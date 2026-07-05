@@ -24,11 +24,11 @@ module "warehouses" {
   ingest_wh_size        = "X-SMALL"
 
   # Auto-suspend agressivo em dev
-  auto_suspend_ui_seconds          = 60
-  auto_suspend_compute_seconds     = 60
-  auto_suspend_ml_seconds          = 60
-  auto_suspend_orch_seconds        = 60
-  auto_suspend_ingest_seconds      = 60
+  auto_suspend_ui_seconds      = 60
+  auto_suspend_compute_seconds = 60
+  auto_suspend_ml_seconds      = 60
+  auto_suspend_orch_seconds    = 60
+  auto_suspend_ingest_seconds  = 60
 }
 
 module "rbac" {

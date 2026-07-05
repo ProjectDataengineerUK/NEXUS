@@ -12,7 +12,7 @@ variable "admin_role" {
 variable "allowed_ip_ranges" {
   description = "Lista de CIDRs permitidos pela network policy (escritório + CI/CD + Streamlit Cloud)"
   type        = list(string)
-  default     = ["0.0.0.0/0"]  # Aberto por padrão; substitua em produção
+  default     = ["0.0.0.0/0"] # Aberto por padrão; substitua em produção
 }
 
 variable "enable_sso" {

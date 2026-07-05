@@ -12,21 +12,21 @@ resource "snowflake_application_package" "nexus" {
 # manifest.yml. O CI faz PUT dos artefatos antes de REGISTER VERSION.
 
 resource "snowflake_stage" "app_stage" {
-  name        = "APP_STAGE"
-  database    = var.database_name
-  schema      = "CORE"
-  comment     = "Artefatos do Native App: Streamlit pages, handlers Python"
-  url         = ""
+  name     = "APP_STAGE"
+  database = var.database_name
+  schema   = "CORE"
+  comment  = "Artefatos do Native App: Streamlit pages, handlers Python"
+  url      = ""
   encryption {
     type = "SNOWFLAKE_SSE"
   }
 }
 
 resource "snowflake_stage" "doc_stage" {
-  name        = "DOC_STAGE"
-  database    = var.database_name
-  schema      = "CORE"
-  comment     = "Documentos carregados pelos usuários para Document Intelligence"
+  name     = "DOC_STAGE"
+  database = var.database_name
+  schema   = "CORE"
+  comment  = "Documentos carregados pelos usuários para Document Intelligence"
   directory {
     enable = true
   }

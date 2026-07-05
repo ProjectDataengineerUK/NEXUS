@@ -24,11 +24,11 @@ module "warehouses" {
   ingest_wh_size        = "SMALL"
 
   # Auto-suspend balanceado para prod
-  auto_suspend_ui_seconds          = 60
-  auto_suspend_compute_seconds     = 120
-  auto_suspend_ml_seconds          = 300
-  auto_suspend_orch_seconds        = 60
-  auto_suspend_ingest_seconds      = 120
+  auto_suspend_ui_seconds      = 60
+  auto_suspend_compute_seconds = 120
+  auto_suspend_ml_seconds      = 300
+  auto_suspend_orch_seconds    = 60
+  auto_suspend_ingest_seconds  = 120
 }
 
 module "rbac" {

@@ -8,8 +8,8 @@ resource "snowflake_resource_monitor" "nexus_credit_monitor" {
   frequency       = "MONTHLY"
   start_timestamp = "IMMEDIATELY"
 
-  notify_triggers    = [75, 90]
-  suspend_triggers   = [100]
+  notify_triggers            = [75, 90]
+  suspend_triggers           = [100]
   suspend_immediate_triggers = [110]
 
   notify_users = var.notify_users
@@ -27,8 +27,8 @@ resource "snowflake_resource_monitor" "nexus_ingest_monitor" {
   frequency       = "MONTHLY"
   start_timestamp = "IMMEDIATELY"
 
-  notify_triggers          = [80]
-  suspend_triggers         = [100]
+  notify_triggers            = [80]
+  suspend_triggers           = [100]
   suspend_immediate_triggers = [120]
 
   notify_users = var.notify_users

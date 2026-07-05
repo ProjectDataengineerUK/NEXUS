@@ -146,7 +146,7 @@ resource "snowflake_saml_integration" "nexus_sso" {
   # IdP metadata — preencher via tfvars ou Vault
   saml2_issuer              = var.saml_issuer_url
   saml2_sso_url             = var.saml_sso_url
-  saml2_provider            = var.saml_provider  # "OKTA" | "ADFS" | "Custom"
+  saml2_provider            = var.saml_provider # "OKTA" | "ADFS" | "Custom"
   saml2_x509_cert           = var.saml_x509_cert
   saml2_enable_sp_initiated = true
 

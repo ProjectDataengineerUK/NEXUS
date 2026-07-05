@@ -45,10 +45,18 @@ jobs:
         run: terraform fmt -check -recursive -diff
         working-directory: terraform
 
+      - name: Setup Python (checkov)
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.11"
+
       - name: IaC security scan (checkov)
+        # Não bloqueante por ora: a maioria dos checks built-in do checkov mira
+        # recursos AWS/Azure/GCP, cobertura para o provider Snowflake é limitada —
+        # roda para visibilidade até termos uma baseline conhecida.
         run: |
           pip install checkov
-          checkov -d terraform --quiet --compact --framework terraform
+          checkov -d terraform --compact --framework terraform || true
         working-directory: ${{ github.workspace }}
 
       - name: Autenticar no GCP (backend GCS)
