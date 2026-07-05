@@ -787,15 +787,20 @@ usage_30d AS (
     GROUP BY customer_id, org_id
 )
 SELECT
-    c.customer_id, c.org_id, c.name AS customer_name, c.segment, c.lifecycle_stage,
+    c.customer_id, c.org_id,
+    c.name AS customer_name, c.name AS name,
+    c.segment, c.lifecycle_stage,
     c.arr, c.mrr, c.nps_score, c.contract_end_date,
     DATEDIFF('day', CURRENT_DATE(), c.contract_end_date) AS days_to_renewal,
     COALESCE(cs.churn_probability, 0.5)       AS churn_probability,
+    COALESCE(cs.churn_probability, 0.5)       AS churn_risk_score,
     COALESCE(cs.risk_level, 'UNKNOWN')        AS churn_risk_level,
+    COALESCE(cs.risk_level, 'UNKNOWN')        AS risk_level,
     COALESCE(cs.expected_revenue_at_risk, 0)  AS expected_revenue_at_risk,
     cs.recommended_action                      AS churn_recommended_action,
     cs.scored_at                               AS churn_scored_at,
     COALESCE(t.open_tickets, 0)               AS open_tickets,
+    COALESCE(t.open_tickets, 0)               AS open_ticket_count,
     COALESCE(t.critical_open_tickets, 0)      AS critical_open_tickets,
     COALESCE(t.sla_breaches, 0)               AS sla_breaches,
     COALESCE(u.events_30d, 0)                 AS events_30d,
@@ -844,31 +849,11 @@ FROM MART.DT_CUSTOMER_HEALTH h
 LEFT JOIN active_recommendations r ON h.org_id = r.org_id
 GROUP BY h.org_id, r.open_recommendations, r.total_expected_impact_usd;
 
-CREATE OR REPLACE DYNAMIC TABLE MART.DT_REVENUE_MOVEMENT
-    TARGET_LAG  = '1 day'
-    WAREHOUSE   = NEXUS_COMPUTE_WH
-    INITIALIZE  = ON_CREATE
-AS
-SELECT
-    org_id,
-    transaction_date AS revenue_date,
-    SUM(CASE WHEN transaction_type = 'new_contract' THEN COALESCE(amount, 0) ELSE 0 END) AS new_arr,
-    SUM(CASE WHEN transaction_type = 'upsell'       THEN COALESCE(amount, 0) ELSE 0 END) AS expansion_arr,
-    SUM(CASE WHEN transaction_type = 'downgrade'    THEN COALESCE(amount, 0) ELSE 0 END) AS contraction_arr,
-    SUM(CASE WHEN transaction_type = 'churn'        THEN COALESCE(amount, 0) ELSE 0 END) AS churn_arr,
-    SUM(CASE WHEN transaction_type = 'renewal'      THEN COALESCE(amount, 0) ELSE 0 END) AS renewal_arr,
-    (  SUM(CASE WHEN transaction_type = 'new_contract' THEN COALESCE(amount, 0) ELSE 0 END)
-     + SUM(CASE WHEN transaction_type = 'upsell'       THEN COALESCE(amount, 0) ELSE 0 END)
-     - SUM(CASE WHEN transaction_type = 'downgrade'    THEN COALESCE(amount, 0) ELSE 0 END)
-     - SUM(CASE WHEN transaction_type = 'churn'        THEN COALESCE(amount, 0) ELSE 0 END)
-    ) AS net_arr,
-    COUNT(DISTINCT transaction_id) AS transaction_count,
-    COUNT(DISTINCT customer_id)    AS customers_transacted,
-    SUM(COALESCE(amount, 0))       AS total_revenue_booked,
-    CURRENT_TIMESTAMP()            AS refreshed_at
-FROM CORE.TRANSACTIONS
-WHERE status = 'completed'
-GROUP BY org_id, transaction_date;
+-- NOTA: DT_REVENUE_MOVEMENT (mês/tipo/transação) é declarada mais abaixo — é o
+-- schema canônico consumido por 11_Sales_Intelligence.py e revenue_opportunity_model.yaml.
+-- Uma definição anterior com granularidade diária (new_arr/expansion_arr/contraction_arr/
+-- net_arr) nunca chegou a ser consumida por nenhuma página ou modelo semântico; foi
+-- removida para eliminar a duplicata de CREATE OR REPLACE que silenciosamente a sobrescrevia.
 
 CREATE OR REPLACE DYNAMIC TABLE AI.DT_SUPPORT_INTELLIGENCE
     TARGET_LAG  = '30 minutes'
@@ -1151,8 +1136,195 @@ ALTER TABLE CORE.TICKETS       ADD ROW ACCESS POLICY CORE.RAP_ORG_ISOLATION ON (
 ALTER TABLE CORE.PRODUCT_EVENTS ADD ROW ACCESS POLICY CORE.RAP_ORG_ISOLATION ON (org_id);
 ALTER TABLE CORE.DOCUMENTS     ADD ROW ACCESS POLICY CORE.RAP_ORG_ISOLATION ON (org_id);
 ALTER TABLE CORE.TRANSACTIONS  ADD ROW ACCESS POLICY CORE.RAP_ORG_ISOLATION ON (org_id);
+ALTER TABLE CORE.CONTRACTS     ADD ROW ACCESS POLICY CORE.RAP_ORG_ISOLATION ON (org_id);
 ALTER TABLE AI.CHURN_SCORES    ADD ROW ACCESS POLICY CORE.RAP_ORG_ISOLATION ON (org_id);
 ALTER TABLE AI.RECOMMENDATIONS ADD ROW ACCESS POLICY CORE.RAP_ORG_ISOLATION ON (org_id);
+ALTER TABLE AI.DOCUMENT_CHUNKS  ADD ROW ACCESS POLICY CORE.RAP_ORG_ISOLATION ON (org_id);
+ALTER TABLE AI.REVENUE_FORECAST ADD ROW ACCESS POLICY CORE.RAP_ORG_ISOLATION ON (org_id);
+ALTER TABLE AI.ANOMALY_ALERTS   ADD ROW ACCESS POLICY CORE.RAP_ORG_ISOLATION ON (org_id);
+ALTER TABLE AI.EMBEDDINGS       ADD ROW ACCESS POLICY CORE.RAP_ORG_ISOLATION ON (org_id);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Data Metric Functions — qualidade de dados (recurso de Snowflake Enterprise
+-- Edition). Empacotado num procedure Python com try/except por statement para
+-- não quebrar o install inteiro em contas Standard Edition, onde DATA METRIC
+-- FUNCTION não existe — cada DDL que falhar é apenas reportado como SKIPPED.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE PROCEDURE CORE.SP_SETUP_DATA_QUALITY_DMFS()
+RETURNS VARCHAR
+LANGUAGE PYTHON
+RUNTIME_VERSION = '3.11'
+PACKAGES = ('snowflake-snowpark-python')
+HANDLER = 'run'
+AS
+$$
+def _try(session, sql, label, results):
+    try:
+        session.sql(sql).collect()
+        results.append(f"{label}:OK")
+    except Exception as e:
+        results.append(f"{label}:SKIPPED({type(e).__name__})")
+
+def run(session):
+    results = []
+
+    _try(session, """
+        CREATE OR REPLACE DATA METRIC FUNCTION GOVERNANCE.DMF_NULL_COUNT(ARG_T TABLE(COL_1 VARCHAR))
+        RETURNS NUMBER AS 'SELECT COUNT_IF(COL_1 IS NULL) FROM ARG_T'
+    """, "CREATE_DMF_NULL_COUNT", results)
+
+    _try(session, """
+        CREATE OR REPLACE DATA METRIC FUNCTION GOVERNANCE.DMF_FRESHNESS_HOURS(ARG_T TABLE(TS_COL TIMESTAMP_TZ))
+        RETURNS NUMBER AS
+        'SELECT DATEDIFF(''hour'', ''1970-01-01''::TIMESTAMP_TZ,
+                        COALESCE(MAX(TS_COL), ''1970-01-01''::TIMESTAMP_TZ))
+         FROM ARG_T'
+    """, "CREATE_DMF_FRESHNESS_HOURS", results)
+
+    _try(session, """
+        CREATE OR REPLACE DATA METRIC FUNCTION GOVERNANCE.DMF_DUPLICATE_COUNT(ARG_T TABLE(KEY_COL VARCHAR))
+        RETURNS NUMBER AS 'SELECT COUNT(*) - COUNT(DISTINCT KEY_COL) FROM ARG_T'
+    """, "CREATE_DMF_DUPLICATE_COUNT", results)
+
+    attachments = [
+        ("CORE.CUSTOMERS SET DATA_METRIC_SCHEDULE = '60 MINUTE'",
+         "ALTER TABLE CORE.CUSTOMERS SET DATA_METRIC_SCHEDULE = '60 MINUTE'"),
+        ("CUSTOMERS.customer_id NULL_COUNT",
+         "ALTER TABLE CORE.CUSTOMERS ADD DATA METRIC FUNCTION GOVERNANCE.DMF_NULL_COUNT ON (customer_id)"),
+        ("CUSTOMERS.org_id NULL_COUNT",
+         "ALTER TABLE CORE.CUSTOMERS ADD DATA METRIC FUNCTION GOVERNANCE.DMF_NULL_COUNT ON (org_id)"),
+        ("CUSTOMERS.email NULL_COUNT",
+         "ALTER TABLE CORE.CUSTOMERS ADD DATA METRIC FUNCTION GOVERNANCE.DMF_NULL_COUNT ON (email)"),
+        ("CUSTOMERS.customer_id DUPLICATE_COUNT",
+         "ALTER TABLE CORE.CUSTOMERS ADD DATA METRIC FUNCTION GOVERNANCE.DMF_DUPLICATE_COUNT ON (customer_id)"),
+        ("CUSTOMERS.created_at FRESHNESS_HOURS",
+         "ALTER TABLE CORE.CUSTOMERS ADD DATA METRIC FUNCTION GOVERNANCE.DMF_FRESHNESS_HOURS ON (created_at)"),
+        ("CORE.TRANSACTIONS SET DATA_METRIC_SCHEDULE = '60 MINUTE'",
+         "ALTER TABLE CORE.TRANSACTIONS SET DATA_METRIC_SCHEDULE = '60 MINUTE'"),
+        ("TRANSACTIONS.transaction_id NULL_COUNT",
+         "ALTER TABLE CORE.TRANSACTIONS ADD DATA METRIC FUNCTION GOVERNANCE.DMF_NULL_COUNT ON (transaction_id)"),
+        ("TRANSACTIONS.customer_id NULL_COUNT",
+         "ALTER TABLE CORE.TRANSACTIONS ADD DATA METRIC FUNCTION GOVERNANCE.DMF_NULL_COUNT ON (customer_id)"),
+        ("TRANSACTIONS.created_at FRESHNESS_HOURS",
+         "ALTER TABLE CORE.TRANSACTIONS ADD DATA METRIC FUNCTION GOVERNANCE.DMF_FRESHNESS_HOURS ON (created_at)"),
+        ("CORE.TICKETS SET DATA_METRIC_SCHEDULE = '60 MINUTE'",
+         "ALTER TABLE CORE.TICKETS SET DATA_METRIC_SCHEDULE = '60 MINUTE'"),
+        ("TICKETS.ticket_id NULL_COUNT",
+         "ALTER TABLE CORE.TICKETS ADD DATA METRIC FUNCTION GOVERNANCE.DMF_NULL_COUNT ON (ticket_id)"),
+        ("TICKETS.created_at FRESHNESS_HOURS",
+         "ALTER TABLE CORE.TICKETS ADD DATA METRIC FUNCTION GOVERNANCE.DMF_FRESHNESS_HOURS ON (created_at)"),
+    ]
+    for label, sql in attachments:
+        _try(session, sql, label, results)
+
+    return " | ".join(results)
+$$;
+
+CALL CORE.SP_SETUP_DATA_QUALITY_DMFS();
+
+GRANT USAGE ON PROCEDURE CORE.SP_SETUP_DATA_QUALITY_DMFS() TO APPLICATION ROLE NEXUS_ADMIN;
+
+CREATE OR REPLACE VIEW GOVERNANCE.V_DMF_REGISTRATIONS AS
+SELECT
+    ref_entity_name                      AS table_fqn,
+    SPLIT_PART(ref_entity_name, '.', 2) AS table_schema,
+    SPLIT_PART(ref_entity_name, '.', 3) AS table_name,
+    metric_name, schedule, schedule_status
+FROM TABLE(
+    INFORMATION_SCHEMA.DATA_METRIC_FUNCTION_REFERENCES(
+        REF_ENTITY_DOMAIN => 'TABLE', REF_ENTITY_NAME => 'CORE.CUSTOMERS'
+    )
+)
+UNION ALL
+SELECT
+    ref_entity_name, SPLIT_PART(ref_entity_name, '.', 2), SPLIT_PART(ref_entity_name, '.', 3),
+    metric_name, schedule, schedule_status
+FROM TABLE(
+    INFORMATION_SCHEMA.DATA_METRIC_FUNCTION_REFERENCES(
+        REF_ENTITY_DOMAIN => 'TABLE', REF_ENTITY_NAME => 'CORE.TRANSACTIONS'
+    )
+)
+UNION ALL
+SELECT
+    ref_entity_name, SPLIT_PART(ref_entity_name, '.', 2), SPLIT_PART(ref_entity_name, '.', 3),
+    metric_name, schedule, schedule_status
+FROM TABLE(
+    INFORMATION_SCHEMA.DATA_METRIC_FUNCTION_REFERENCES(
+        REF_ENTITY_DOMAIN => 'TABLE', REF_ENTITY_NAME => 'CORE.TICKETS'
+    )
+);
+
+GRANT SELECT ON VIEW GOVERNANCE.V_DMF_REGISTRATIONS TO APPLICATION ROLE NEXUS_ANALYST;
+GRANT SELECT ON VIEW GOVERNANCE.V_DMF_REGISTRATIONS TO APPLICATION ROLE NEXUS_ADMIN;
+
+-- Stub sempre válido (zero linhas) — em contas Enterprise Edition, substituir por
+-- SELECT a partir de SNOWFLAKE.LOCAL.DATA_QUALITY_MONITORING_RESULTS para ver
+-- resultados reais de medição em vez de apenas a configuração registrada acima.
+CREATE OR REPLACE VIEW GOVERNANCE.V_DATA_QUALITY_DASHBOARD AS
+SELECT
+    CURRENT_TIMESTAMP()::TIMESTAMP_TZ AS measurement_time,
+    ''::VARCHAR                       AS table_schema,
+    ''::VARCHAR                       AS table_name,
+    ''::VARCHAR                       AS metric_name,
+    0::NUMBER                         AS value,
+    'OK'::VARCHAR                     AS quality_status
+WHERE FALSE;
+
+GRANT SELECT ON VIEW GOVERNANCE.V_DATA_QUALITY_DASHBOARD TO APPLICATION ROLE NEXUS_ANALYST;
+GRANT SELECT ON VIEW GOVERNANCE.V_DATA_QUALITY_DASHBOARD TO APPLICATION ROLE NEXUS_ADMIN;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Masking Policies (PII) — NEXUS_ADMIN vê dados reais; demais application roles
+-- recebem valores mascarados. IS_APPLICATION_ROLE_IN_SESSION é o builtin correto
+-- para checar application roles do consumer a partir de código dentro do próprio
+-- Native App (CURRENT_ROLE() retornaria a role da conta do consumer, não a app role).
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE MASKING POLICY IF NOT EXISTS GOVERNANCE.MASK_EMAIL
+AS (val STRING) RETURNS STRING ->
+    CASE
+        WHEN IS_APPLICATION_ROLE_IN_SESSION('NEXUS_ADMIN') THEN val
+        WHEN val IS NULL THEN NULL
+        ELSE REGEXP_REPLACE(val, '(^[^@]{1,2})[^@]*(@.*)', '\\1***\\2')
+    END
+COMMENT = 'Mascara email: j***@example.com para non-admin';
+
+CREATE MASKING POLICY IF NOT EXISTS GOVERNANCE.MASK_PHONE
+AS (val STRING) RETURNS STRING ->
+    CASE
+        WHEN IS_APPLICATION_ROLE_IN_SESSION('NEXUS_ADMIN') THEN val
+        WHEN val IS NULL THEN NULL
+        ELSE REGEXP_REPLACE(val, '(\\d{2})(\\d+)(\\d{2})', '\\1****\\3')
+    END
+COMMENT = 'Mascara telefone: mantém primeiros e últimos 2 dígitos';
+
+CREATE MASKING POLICY IF NOT EXISTS GOVERNANCE.MASK_NAME
+AS (val STRING) RETURNS STRING ->
+    CASE
+        WHEN IS_APPLICATION_ROLE_IN_SESSION('NEXUS_ADMIN') THEN val
+        WHEN val IS NULL THEN NULL
+        ELSE SPLIT_PART(val, ' ', 1) || ' ****'
+    END
+COMMENT = 'Mascara sobrenome: mantém apenas primeiro nome';
+
+CREATE MASKING POLICY IF NOT EXISTS GOVERNANCE.MASK_TEXT_PII
+AS (val STRING) RETURNS STRING ->
+    CASE
+        WHEN IS_APPLICATION_ROLE_IN_SESSION('NEXUS_ADMIN') THEN val
+        WHEN val IS NULL THEN NULL
+        ELSE '[CONTEÚDO MASCARADO — APENAS NEXUS_ADMIN]'
+    END
+COMMENT = 'Mascara campos de texto com possível PII (prompts, descrições)';
+
+ALTER TABLE CORE.CUSTOMERS MODIFY COLUMN email SET MASKING POLICY GOVERNANCE.MASK_EMAIL FORCE;
+ALTER TABLE CORE.CUSTOMERS MODIFY COLUMN phone SET MASKING POLICY GOVERNANCE.MASK_PHONE FORCE;
+ALTER TABLE CORE.CUSTOMERS MODIFY COLUMN name  SET MASKING POLICY GOVERNANCE.MASK_NAME  FORCE;
+
+ALTER TABLE AUDIT.PROMPT_LOG MODIFY COLUMN user_name   SET MASKING POLICY GOVERNANCE.MASK_NAME     FORCE;
+ALTER TABLE AUDIT.PROMPT_LOG MODIFY COLUMN prompt_text SET MASKING POLICY GOVERNANCE.MASK_TEXT_PII FORCE;
+-- NOTA: CORE.INTERACTIONS ainda não existe neste ponto do script (criada na seção
+-- "Tabelas canônicas ausentes" mais abaixo) — a máscara de body é aplicada lá.
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Sprint 2 — P0: External Access Integration (APIs externas via Native App)
@@ -1176,6 +1348,177 @@ CREATE EXTERNAL ACCESS INTEGRATION IF NOT EXISTS NEXUS_API_EAI
     COMMENT               = 'Integração de acesso externo para Salesforce, Zendesk e Stripe';
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- Sprint 2 — P0: Stored Procedures para as Tasks de refresh automático
+-- churn_model.py e recommendation_model.py chegam ao consumer como parte do
+-- pacote do Native App (ver snowflake.yml artifacts: snowflake/models/ → ./models/
+-- e .github/workflows/04-release-native-app.yml, que faz PUT dos mesmos arquivos
+-- em {STAGE}/models/). Por isso o IMPORTS abaixo é um caminho relativo ao pacote,
+-- não um stage de runtime — CORE.ML_STAGE é para upload futuro de modelos custom.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE PROCEDURE CORE.SP_RUN_CHURN_PIPELINE(MODE VARCHAR DEFAULT 'full')
+RETURNS VARCHAR
+LANGUAGE PYTHON
+RUNTIME_VERSION = '3.11'
+PACKAGES = ('snowflake-snowpark-python', 'snowflake-ml-python')
+HANDLER = 'churn_model.run_churn_pipeline'
+IMPORTS = ('models/churn_model.py', 'models/recommendation_model.py')
+COMMENT = 'Treina/executa modelo de churn (Snowpark ML) e gera recomendações via Cortex';
+
+GRANT USAGE ON PROCEDURE CORE.SP_RUN_CHURN_PIPELINE(VARCHAR) TO APPLICATION ROLE NEXUS_ADMIN;
+
+CREATE TABLE IF NOT EXISTS AI.EXECUTIVE_BRIEFINGS (
+    briefing_id     VARCHAR(36)    DEFAULT UUID_STRING(),
+    org_id          VARCHAR(100)   NOT NULL,
+    briefing_date   DATE           DEFAULT CURRENT_DATE(),
+    briefing_type   VARCHAR(50)    DEFAULT 'DAILY',
+    content         TEXT,
+    kpi_snapshot    VARIANT,
+    model_used      VARCHAR(100)   DEFAULT 'claude-3-5-sonnet',
+    tokens_used     INTEGER,
+    latency_ms      INTEGER,
+    created_at      TIMESTAMP_TZ   DEFAULT CURRENT_TIMESTAMP(),
+    CONSTRAINT pk_executive_briefings PRIMARY KEY (briefing_id)
+);
+
+ALTER TABLE AI.EXECUTIVE_BRIEFINGS ADD ROW ACCESS POLICY CORE.RAP_ORG_ISOLATION ON (org_id);
+
+CREATE OR REPLACE VIEW AI.V_LATEST_EXECUTIVE_BRIEFING AS
+SELECT
+    b.briefing_id, b.org_id, b.briefing_date, b.briefing_type,
+    b.content, b.kpi_snapshot, b.model_used, b.latency_ms, b.created_at
+FROM AI.EXECUTIVE_BRIEFINGS b
+QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY b.org_id, b.briefing_type ORDER BY b.created_at DESC
+) = 1;
+
+GRANT SELECT ON TABLE AI.EXECUTIVE_BRIEFINGS         TO APPLICATION ROLE NEXUS_VIEWER;
+GRANT SELECT ON VIEW  AI.V_LATEST_EXECUTIVE_BRIEFING TO APPLICATION ROLE NEXUS_VIEWER;
+
+CREATE OR REPLACE PROCEDURE CORE.SP_GENERATE_EXECUTIVE_BRIEFING()
+RETURNS VARCHAR
+LANGUAGE PYTHON
+RUNTIME_VERSION = '3.11'
+PACKAGES = ('snowflake-snowpark-python')
+HANDLER = 'run'
+AS
+$$
+import json
+import time
+
+def run(session):
+    orgs = session.sql("""
+        SELECT DISTINCT org_id
+        FROM CORE.CUSTOMERS
+        WHERE lifecycle_stage != 'churned'
+          AND updated_at >= CURRENT_DATE() - 90
+    """).collect()
+
+    if not orgs:
+        return "NO_ACTIVE_ORGS"
+
+    results = []
+    model = "claude-3-5-sonnet"
+
+    for org_row in orgs:
+        org_id = org_row["ORG_ID"]
+
+        kpi_rows = session.sql("""
+            SELECT
+                COUNT(*)                                                AS total_customers,
+                SUM(CASE WHEN churn_risk_level = 'HIGH'   THEN 1 ELSE 0 END) AS high_risk,
+                SUM(CASE WHEN churn_risk_level = 'MEDIUM' THEN 1 ELSE 0 END) AS medium_risk,
+                ROUND(SUM(arr), 2)                                      AS total_arr,
+                ROUND(SUM(CASE WHEN churn_risk_level = 'HIGH' THEN arr ELSE 0 END), 2) AS arr_at_risk,
+                ROUND(AVG(health_score), 1)                             AS avg_health_score,
+                ROUND(AVG(nps_score), 1)                                AS avg_nps
+            FROM MART.CUSTOMER_360
+            WHERE org_id = ?
+        """, params=[org_id]).collect()
+
+        if not kpi_rows:
+            continue
+
+        k = kpi_rows[0].as_dict()
+
+        delta_rows = session.sql("""
+            SELECT
+                SUM(CASE WHEN customer_since >= CURRENT_DATE() - 30 THEN 1 ELSE 0 END) AS new_30d,
+                SUM(CASE WHEN lifecycle_stage = 'churned'
+                          AND updated_at >= CURRENT_DATE() - 30 THEN 1 ELSE 0 END) AS churned_30d
+            FROM CORE.CUSTOMERS
+            WHERE org_id = ?
+        """, params=[org_id]).collect()
+
+        delta = delta_rows[0].as_dict() if delta_rows else {}
+
+        kpi_snapshot = {**k, **delta}
+        kpi_str = json.dumps(kpi_snapshot, default=str)
+
+        prompt = (
+            "Você é o Executive AI Briefing Agent do NEXUS AI DataOps. "
+            "Com base nos KPIs abaixo, gere um briefing executivo conciso (máx 300 palavras) "
+            "em português com as seções: "
+            "(1) Resumo do dia, "
+            "(2) Top 3 riscos imediatos, "
+            "(3) Top 3 oportunidades de receita, "
+            "(4) Ações recomendadas para as próximas 24h. "
+            f"KPIs: {kpi_str}"
+        )
+
+        t0 = time.time()
+        briefing_rows = session.sql(
+            "SELECT SNOWFLAKE.CORTEX.COMPLETE(?, ?) AS briefing_text",
+            params=[model, prompt]
+        ).collect()
+        latency_ms = int((time.time() - t0) * 1000)
+
+        briefing_text = briefing_rows[0]["BRIEFING_TEXT"] if briefing_rows else ""
+
+        if not briefing_text:
+            results.append(f"{org_id}:EMPTY_RESPONSE")
+            continue
+
+        session.sql("""
+            INSERT INTO AI.EXECUTIVE_BRIEFINGS
+                (org_id, briefing_date, briefing_type, content, kpi_snapshot,
+                 model_used, tokens_used, latency_ms)
+            VALUES (?, CURRENT_DATE(), 'DAILY', ?, PARSE_JSON(?), ?, 0, ?)
+        """, params=[org_id, briefing_text, kpi_str, model, latency_ms]).collect()
+
+        session.sql("""
+            MERGE INTO AI.RECOMMENDATIONS AS tgt
+            USING (
+                SELECT
+                    ?                                       AS org_id,
+                    'executive'                             AS entity_id,
+                    'briefing'                               AS entity_type,
+                    'daily_briefing'                         AS recommendation_type,
+                    'HIGH'                                    AS priority,
+                    ?                                          AS recommendation_text,
+                    CURRENT_TIMESTAMP() + INTERVAL '1 day'   AS expires_at
+            ) AS src
+            ON  tgt.org_id               = src.org_id
+            AND tgt.entity_id            = src.entity_id
+            AND tgt.recommendation_type  = src.recommendation_type
+            AND tgt.expires_at           > CURRENT_TIMESTAMP()
+            WHEN NOT MATCHED THEN INSERT (
+                org_id, entity_id, entity_type, recommendation_type,
+                priority, recommendation_text, expires_at
+            ) VALUES (
+                src.org_id, src.entity_id, src.entity_type, src.recommendation_type,
+                src.priority, src.recommendation_text, src.expires_at
+            )
+        """, params=[org_id, briefing_text[:1000]]).collect()
+
+        results.append(f"{org_id}:OK")
+
+    return "BRIEFINGS_GENERATED:" + ",".join(results)
+$$;
+
+GRANT USAGE ON PROCEDURE CORE.SP_GENERATE_EXECUTIVE_BRIEFING() TO APPLICATION ROLE NEXUS_ADMIN;
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- Sprint 2 — P0: Tasks de ingestão e refresh automático
 -- ─────────────────────────────────────────────────────────────────────────────
 
@@ -1185,7 +1528,7 @@ CREATE OR REPLACE TASK CORE.TASK_RUN_CHURN_PIPELINE
     SCHEDULE  = 'USING CRON 0 2 * * * UTC'
     COMMENT   = 'Executa pipeline de churn diariamente às 2h UTC'
 AS
-    CALL CORE.SP_RUN_CHURN_PIPELINE();
+    CALL CORE.SP_RUN_CHURN_PIPELINE('full');
 
 -- Task: gerar briefing executivo diário (corrige AT-010)
 CREATE OR REPLACE TASK CORE.TASK_EXECUTIVE_BRIEFING
@@ -1202,31 +1545,42 @@ CREATE OR REPLACE TASK MART.TASK_REFRESH_REVENUE_SCORE
     COMMENT   = 'Atualiza Revenue Opportunity Score a cada 6h'
 AS
     INSERT INTO MART.REVENUE_OPPORTUNITY_SCORE (
-        customer_id, org_id, opportunity_score, opportunity_type,
-        estimated_revenue_usd, confidence, scored_at
+        customer_id, org_id, customer_name, opportunity_score, opportunity_type,
+        estimated_revenue_usd, confidence, churn_risk, contract_end_date, arr, scored_at
+    )
+    WITH latest_churn AS (
+        SELECT customer_id, org_id, churn_probability
+        FROM AI.CHURN_SCORES
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY customer_id, org_id ORDER BY scored_at DESC) = 1
     )
     SELECT
         c.customer_id,
         c.org_id,
+        c.name                                                  AS customer_name,
         CASE
-            WHEN c.churn_risk_score < 0.3 AND c.arr > 50000 THEN 0.85
-            WHEN c.churn_risk_score < 0.3 AND c.arr > 20000 THEN 0.70
-            WHEN c.churn_risk_score < 0.5 THEN 0.55
+            WHEN COALESCE(churn.churn_probability, 0.5) < 0.3 AND c.arr > 50000 THEN 0.85
+            WHEN COALESCE(churn.churn_probability, 0.5) < 0.3 AND c.arr > 20000 THEN 0.70
+            WHEN COALESCE(churn.churn_probability, 0.5) < 0.5 THEN 0.55
             ELSE 0.20
         END                                                     AS opportunity_score,
         CASE
-            WHEN c.churn_risk_score < 0.3 THEN 'upsell'
-            WHEN c.churn_risk_score < 0.5 THEN 'expansion'
+            WHEN COALESCE(churn.churn_probability, 0.5) < 0.3 THEN 'upsell'
+            WHEN COALESCE(churn.churn_probability, 0.5) < 0.5 THEN 'expansion'
             ELSE 'retention'
         END                                                     AS opportunity_type,
         c.arr * CASE
-            WHEN c.churn_risk_score < 0.3 THEN 0.25
-            WHEN c.churn_risk_score < 0.5 THEN 0.10
+            WHEN COALESCE(churn.churn_probability, 0.5) < 0.3 THEN 0.25
+            WHEN COALESCE(churn.churn_probability, 0.5) < 0.5 THEN 0.10
             ELSE 0.05
         END                                                     AS estimated_revenue_usd,
-        1 - c.churn_risk_score                                  AS confidence,
+        1 - COALESCE(churn.churn_probability, 0.5)              AS confidence,
+        COALESCE(churn.churn_probability, 0.5)                  AS churn_risk,
+        c.contract_end_date,
+        c.arr,
         CURRENT_TIMESTAMP()
     FROM CORE.CUSTOMERS c
+    LEFT JOIN latest_churn churn
+        ON c.customer_id = churn.customer_id AND c.org_id = churn.org_id
     WHERE NOT EXISTS (
         SELECT 1 FROM MART.REVENUE_OPPORTUNITY_SCORE r
         WHERE r.customer_id = c.customer_id
@@ -1288,72 +1642,45 @@ CREATE TABLE IF NOT EXISTS CORE.INTERACTIONS (
 ALTER TABLE CORE.ACCOUNTS     ADD ROW ACCESS POLICY CORE.RAP_ORG_ISOLATION ON (org_id);
 ALTER TABLE CORE.PRODUCTS     ADD ROW ACCESS POLICY CORE.RAP_ORG_ISOLATION ON (org_id);
 ALTER TABLE CORE.INTERACTIONS ADD ROW ACCESS POLICY CORE.RAP_ORG_ISOLATION ON (org_id);
+ALTER TABLE CORE.INTERACTIONS MODIFY COLUMN body SET MASKING POLICY GOVERNANCE.MASK_TEXT_PII FORCE;
 
 -- Revenue Opportunity Score — tabela target das Tasks
+-- customer_name/churn_risk/contract_end_date/arr são denormalizados aqui (em vez de
+-- exigir JOIN em runtime) porque revenue_opportunity_model.yaml (Cortex Analyst)
+-- os expõe como dimensions/measures diretas desta tabela.
 CREATE TABLE IF NOT EXISTS MART.REVENUE_OPPORTUNITY_SCORE (
     score_id             VARCHAR(36)   NOT NULL DEFAULT UUID_STRING(),
     customer_id          VARCHAR(36)   NOT NULL,
     org_id               VARCHAR(50)   NOT NULL,
+    customer_name        VARCHAR(500),
     opportunity_score    DECIMAL(4,2),
     opportunity_type     VARCHAR(50),
     estimated_revenue_usd DECIMAL(18,2),
     confidence           DECIMAL(4,2),
+    churn_risk           DECIMAL(5,4),
+    contract_end_date    DATE,
+    arr                  DECIMAL(18,2),
     scored_at            TIMESTAMP_TZ  DEFAULT CURRENT_TIMESTAMP(),
     PRIMARY KEY (score_id)
 );
+
+-- Migrations: garante colunas adicionadas após versões anteriores
+ALTER TABLE MART.REVENUE_OPPORTUNITY_SCORE ADD COLUMN IF NOT EXISTS customer_name     VARCHAR(500);
+ALTER TABLE MART.REVENUE_OPPORTUNITY_SCORE ADD COLUMN IF NOT EXISTS churn_risk        DECIMAL(5,4);
+ALTER TABLE MART.REVENUE_OPPORTUNITY_SCORE ADD COLUMN IF NOT EXISTS contract_end_date DATE;
+ALTER TABLE MART.REVENUE_OPPORTUNITY_SCORE ADD COLUMN IF NOT EXISTS arr               DECIMAL(18,2);
 
 ALTER TABLE MART.REVENUE_OPPORTUNITY_SCORE
     ADD ROW ACCESS POLICY CORE.RAP_ORG_ISOLATION ON (org_id);
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Sprint 2 — P1: Dynamic Tables no setup_script (chegam ao consumer via Native App)
+-- NOTA: DT_EXECUTIVE_KPIS e DT_CUSTOMER_HEALTH já foram declaradas acima
+-- (canônicas, usadas por Home.py / 1_Executive_Command.py / 12_Operations_Intelligence.py
+-- / operations_model.yaml). As definições duplicadas que existiam aqui referenciavam
+-- CORE.CUSTOMERS.churn_risk_score, coluna inexistente, e quebravam o setup_script —
+-- foram removidas em vez de recriadas com CREATE OR REPLACE.
 -- ─────────────────────────────────────────────────────────────────────────────
-
-CREATE OR REPLACE DYNAMIC TABLE MART.DT_EXECUTIVE_KPIS
-    TARGET_LAG = '1 hour'
-    WAREHOUSE  = NEXUS_APP_WH
-    COMMENT    = 'KPIs executivos — atualiza automaticamente a cada 1h'
-AS
-SELECT
-    c.org_id,
-    COUNT(DISTINCT c.customer_id)                             AS total_customers,
-    ROUND(AVG(c.churn_risk_score) * 100, 1)                  AS avg_churn_risk_pct,
-    COUNT(CASE WHEN c.churn_risk_score > 0.7 THEN 1 END)     AS critical_risk_count,
-    COUNT(CASE WHEN c.lifecycle_stage = 'active' THEN 1 END) AS active_customers,
-    COALESCE(SUM(c.arr), 0)                                  AS total_arr,
-    COALESCE(SUM(c.mrr), 0)                                  AS total_mrr,
-    COALESCE(AVG(c.nps_score), 0)                            AS avg_nps,
-    CURRENT_TIMESTAMP()                                       AS refreshed_at
-FROM CORE.CUSTOMERS c
-GROUP BY c.org_id;
-
-CREATE OR REPLACE DYNAMIC TABLE MART.DT_CUSTOMER_HEALTH
-    TARGET_LAG = '1 hour'
-    WAREHOUSE  = NEXUS_APP_WH
-    COMMENT    = 'Health score e segmento por cliente — lag 1h'
-AS
-SELECT
-    c.customer_id,
-    c.org_id,
-    c.name,
-    c.segment,
-    c.region,
-    c.arr,
-    c.mrr,
-    c.nps_score,
-    COALESCE(cs.churn_probability, c.churn_risk_score, 0.5)   AS churn_risk_score,
-    COALESCE(cs.risk_level, 'MEDIUM')                          AS risk_level,
-    CASE
-        WHEN COALESCE(cs.churn_probability, 0.5) >= 0.7 THEN 'CRITICAL'
-        WHEN COALESCE(cs.churn_probability, 0.5) >= 0.5 THEN 'AT_RISK'
-        WHEN COALESCE(cs.churn_probability, 0.5) >= 0.3 THEN 'HEALTHY'
-        ELSE 'CHAMPION'
-    END                                                        AS health_segment,
-    c.contract_end_date,
-    c.lifecycle_stage,
-    CURRENT_TIMESTAMP()                                        AS refreshed_at
-FROM CORE.CUSTOMERS c
-LEFT JOIN AI.CHURN_SCORES cs ON c.customer_id = cs.customer_id;
 
 CREATE OR REPLACE DYNAMIC TABLE MART.DT_REVENUE_MOVEMENT
     TARGET_LAG = '1 hour'
@@ -1689,3 +2016,118 @@ USING (SELECT 'app_version' AS setting_key, '2.0.0' AS setting_value, 'NEXUS AI 
 ON t.setting_key = s.setting_key
 WHEN MATCHED THEN UPDATE SET setting_value = '2.0.0', updated_at = CURRENT_TIMESTAMP()
 WHEN NOT MATCHED THEN INSERT (setting_key, setting_value, description) VALUES (s.setting_key, s.setting_value, s.description);
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- SPRINT 3 — Semantic Models, Cortex Analyst & Multi-org
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- STAGING schema (necessário para DAGs Airflow criarem tabelas temporárias)
+CREATE SCHEMA IF NOT EXISTS STAGING;
+GRANT USAGE ON SCHEMA STAGING TO APPLICATION ROLE NEXUS_ADMIN;
+GRANT USAGE ON SCHEMA STAGING TO APPLICATION ROLE NEXUS_ANALYST;
+GRANT CREATE TABLE ON SCHEMA STAGING TO APPLICATION ROLE NEXUS_ADMIN;
+
+-- AI.AGENT_MEMORY — estado multi-turn de agentes Cortex (P2)
+CREATE TABLE IF NOT EXISTS AI.AGENT_MEMORY (
+    memory_id       VARCHAR(36)   DEFAULT UUID_STRING() PRIMARY KEY,
+    org_id          VARCHAR(64)   NOT NULL,
+    user_name       VARCHAR(128)  NOT NULL,
+    agent_name      VARCHAR(64)   NOT NULL,
+    session_id      VARCHAR(36),
+    memory_key      VARCHAR(256)  NOT NULL,
+    memory_value    VARIANT,
+    created_at      TIMESTAMP_TZ  DEFAULT CURRENT_TIMESTAMP(),
+    expires_at      TIMESTAMP_TZ
+);
+
+ALTER TABLE AI.AGENT_MEMORY ADD ROW ACCESS POLICY CORE.RAP_ORG_ISOLATION ON (org_id);
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE AI.AGENT_MEMORY TO APPLICATION ROLE NEXUS_ANALYST;
+GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON TABLE AI.AGENT_MEMORY TO APPLICATION ROLE NEXUS_ADMIN;
+
+-- Demo data: ORG-DEMO-002 — 3 clientes SMB LATAM (high churn, contraste com ORG-DEMO-001)
+MERGE INTO CORE.CUSTOMERS t
+USING (
+    SELECT 'CUST-DEMO-011' AS customer_id, 'ORG-DEMO-002' AS org_id,
+           'Kappa Varejo LTDA'    AS name, 'admin@kappa-varejo.com' AS email,
+           'SMB' AS segment, 'LATAM' AS region, 'Retail' AS industry,
+           'at_risk' AS lifecycle_stage,
+           12000.00 AS arr, 1000.00 AS mrr, 8 AS nps_score,
+           '2026-07-31'::DATE AS contract_end_date UNION ALL
+    SELECT 'CUST-DEMO-012', 'ORG-DEMO-002',
+           'Lambda Serviços S.A.', 'ti@lambda-servicos.com.br',
+           'SMB', 'LATAM', 'Services', 'at_risk',
+           9600.00, 800.00, 15, '2026-08-31'::DATE UNION ALL
+    SELECT 'CUST-DEMO-013', 'ORG-DEMO-002',
+           'Mu Construção e Engenharia', 'operacoes@mu-const.com',
+           'SMB', 'LATAM', 'Construction', 'active',
+           14400.00, 1200.00, 32, '2027-02-28'::DATE
+) s ON (t.customer_id = s.customer_id)
+WHEN NOT MATCHED THEN INSERT
+    (customer_id, org_id, name, email, segment, region, industry,
+     lifecycle_stage, arr, mrr, nps_score, contract_end_date)
+    VALUES (s.customer_id, s.org_id, s.name, s.email, s.segment, s.region,
+            s.industry, s.lifecycle_stage, s.arr, s.mrr, s.nps_score, s.contract_end_date);
+
+-- Demo data: ORG-USER-MAP para ORG-DEMO-002
+MERGE INTO CONFIG.ORG_USER_MAP t
+USING (
+    SELECT 'ORG-DEMO-002' AS org_id, 'NEXUS_ANALYST_2' AS user_name, 'analyst' AS role UNION ALL
+    SELECT 'ORG-DEMO-002', 'NEXUS_ADMIN', 'admin'
+) s ON (t.org_id = s.org_id AND t.user_name = s.user_name)
+WHEN NOT MATCHED THEN INSERT (org_id, user_name, role) VALUES (s.org_id, s.user_name, s.role);
+
+-- Demo data: Tickets ORG-DEMO-002 (alta prioridade — evidencia RAP isolation)
+MERGE INTO CORE.TICKETS t
+USING (
+    SELECT 'TKT-DEMO-021' AS ticket_id, 'ORG-DEMO-002' AS org_id, 'CUST-DEMO-011' AS customer_id,
+           'open' AS status, 'urgent' AS priority, 'bug' AS ticket_type,
+           'Falha crítica na ingestão de dados de vendas' AS subject,
+           DATEADD('hour', -48, CURRENT_TIMESTAMP()) AS created_at UNION ALL
+    SELECT 'TKT-DEMO-022', 'ORG-DEMO-002', 'CUST-DEMO-011',
+           'open', 'high', 'support',
+           'Dashboard executivo não carrega para usuários mobile',
+           DATEADD('hour', -24, CURRENT_TIMESTAMP()) UNION ALL
+    SELECT 'TKT-DEMO-023', 'ORG-DEMO-002', 'CUST-DEMO-012',
+           'open', 'urgent', 'billing',
+           'Cobrança duplicada em Junho — cliente ameaça cancelar',
+           DATEADD('hour', -6, CURRENT_TIMESTAMP()) UNION ALL
+    SELECT 'TKT-DEMO-024', 'ORG-DEMO-002', 'CUST-DEMO-013',
+           'in_progress', 'medium', 'feature_request',
+           'Solicita integração com ERP SAP',
+           DATEADD('day', -3, CURRENT_TIMESTAMP())
+) s ON (t.ticket_id = s.ticket_id)
+WHEN NOT MATCHED THEN INSERT
+    (ticket_id, org_id, customer_id, status, priority, ticket_type, subject, created_at)
+    VALUES (s.ticket_id, s.org_id, s.customer_id, s.status, s.priority,
+            s.ticket_type, s.subject, s.created_at);
+
+-- Demo data: Interações ORG-DEMO-002 (sentimento negativo — churn em progresso)
+MERGE INTO CORE.INTERACTIONS t
+USING (
+    SELECT 'INT-DEMO-021' AS interaction_id, 'ORG-DEMO-002' AS org_id,
+           'CUST-DEMO-011' AS customer_id, 'call' AS channel, 'inbound' AS direction,
+           'Reclamação sobre instabilidade da plataforma nas últimas 2 semanas' AS subject,
+           -0.65 AS sentiment_score, 'follow_up' AS outcome,
+           DATEADD('day', -2, CURRENT_TIMESTAMP()) AS occurred_at UNION ALL
+    SELECT 'INT-DEMO-022', 'ORG-DEMO-002', 'CUST-DEMO-012', 'email', 'inbound',
+           'Solicitação de rescisão antecipada — aguardando proposta de retenção',
+           -0.80, 'pending', DATEADD('day', -1, CURRENT_TIMESTAMP()) UNION ALL
+    SELECT 'INT-DEMO-023', 'ORG-DEMO-002', 'CUST-DEMO-013', 'meeting', 'outbound',
+           'QBR Q2 — apresentação de ROI positivo, cliente satisfeito com resultados',
+           0.55, 'committed', DATEADD('day', -5, CURRENT_TIMESTAMP())
+) s ON (t.interaction_id = s.interaction_id)
+WHEN NOT MATCHED THEN INSERT
+    (interaction_id, org_id, customer_id, channel, direction, subject,
+     sentiment_score, outcome, occurred_at)
+    VALUES (s.interaction_id, s.org_id, s.customer_id, s.channel, s.direction,
+            s.subject, s.sentiment_score, s.outcome, s.occurred_at);
+
+-- Versão v3.0.0
+MERGE INTO CONFIG.APP_SETTINGS t
+USING (SELECT 'app_version' AS setting_key, '3.0.0' AS setting_value,
+              'NEXUS AI DataOps v3.0 — Semantic Models, Cortex Analyst & Multi-org' AS description) s
+ON t.setting_key = s.setting_key
+WHEN MATCHED THEN UPDATE SET setting_value = '3.0.0', updated_at = CURRENT_TIMESTAMP()
+WHEN NOT MATCHED THEN INSERT (setting_key, setting_value, description)
+    VALUES (s.setting_key, s.setting_value, s.description);

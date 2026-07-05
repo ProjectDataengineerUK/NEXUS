@@ -20,16 +20,23 @@ st.set_page_config(
 )
 
 ORG_ID         = get_org_id()
-SEMANTIC_MODEL = "@CORE.SEMANTIC_STAGE/nexus_revenue.yaml"
 DOC_SEARCH_SVC = "AI.DOC_SEARCH"
 ANALYST_MODEL  = "mistral-large2"
 AGENT_MODEL    = "claude-3-5-sonnet"
 
+DOMAIN_MODELS = {
+    "Revenue & Customers":  "@CORE.SEMANTIC_STAGE/nexus_revenue.yaml",
+    "Executive KPIs":       "@CORE.SEMANTIC_STAGE/executive_kpis.yaml",
+    "Customer 360":         "@CORE.SEMANTIC_STAGE/customer_360.yaml",
+    "Operations & Tickets": "@CORE.SEMANTIC_STAGE/operations_model.yaml",
+    "Sales Opportunity":    "@CORE.SEMANTIC_STAGE/revenue_opportunity_model.yaml",
+}
+
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
-def call_cortex_analyst(question: str) -> dict:
-    return _call_analyst(question, SEMANTIC_MODEL)
+def call_cortex_analyst(question: str, model_file: str) -> dict:
+    return _call_analyst(question, model_file)
 
 
 def call_cortex_agent(messages: list[dict]) -> dict:
@@ -51,7 +58,7 @@ def call_cortex_agent(messages: list[dict]) -> dict:
         },
     ]
     tool_resources = {
-        "revenue_analyst": {"semantic_model_file": SEMANTIC_MODEL},
+        "revenue_analyst": {"semantic_model_file": DOMAIN_MODELS["Revenue & Customers"]},
         "document_search": {"name": DOC_SEARCH_SVC},
     }
     return _call_agent(messages, AGENT_MODEL, tools, tool_resources)
@@ -111,9 +118,21 @@ with st.sidebar:
         ),
     )
 
+    if chat_mode == "📊 Cortex Analyst":
+        selected_domain = st.selectbox(
+            "Domínio de dados",
+            list(DOMAIN_MODELS.keys()),
+            index=0,
+            help="Selecione o contexto semântico para o Cortex Analyst.",
+        )
+        SEMANTIC_MODEL = DOMAIN_MODELS[selected_domain]
+    else:
+        SEMANTIC_MODEL = DOMAIN_MODELS["Revenue & Customers"]
+
     st.divider()
     st.caption("Executive Agent usa `claude-3-5-sonnet` com Cortex Analyst + Cortex Search.")
-    st.caption("Cortex Analyst usa `mistral-large2` com semantic model NEXUS Revenue.")
+    _domain_label = selected_domain if chat_mode == "📊 Cortex Analyst" else "Revenue & Customers"
+    st.caption(f"Cortex Analyst usa `mistral-large2` · domínio: **{_domain_label}**")
     st.divider()
     st.page_link("Home.py", label="← Home", icon="⚡")
     st.page_link("pages/4_Document_Intelligence.py", label="📄 Document Intelligence")
@@ -176,7 +195,7 @@ if chat_mode == "📊 Cortex Analyst":
 
         with st.chat_message("assistant"):
             with st.spinner("Gerando SQL e executando consulta…"):
-                result = call_cortex_analyst(question)
+                result = call_cortex_analyst(question, SEMANTIC_MODEL)
 
             if result["error"]:
                 st.error(f"Erro no Cortex Analyst: {result['error']}")

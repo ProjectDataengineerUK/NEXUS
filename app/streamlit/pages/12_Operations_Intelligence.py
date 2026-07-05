@@ -1,7 +1,8 @@
-"""NEXUS AI DataOps — Operations Intelligence (Sprint 2 P2)"""
+"""NEXUS AI DataOps — Operations Intelligence (Sprint 3: + NL→SQL widget)"""
 
 import streamlit as st
 from snowflake.snowpark.context import get_active_session
+from utils.cortex_analyst import render_analyst_widget
 
 st.set_page_config(page_title="Operations Intelligence", page_icon="⚙️", layout="wide")
 
@@ -88,7 +89,9 @@ with col4:
 
 st.divider()
 
-tab1, tab2, tab3 = st.tabs(["Tickets em Risco", "Interações (30d)", "Clientes Críticos"])
+tab1, tab2, tab3, tab4 = st.tabs([
+    "Tickets em Risco", "Interações (30d)", "Clientes Críticos", "💬 Perguntar em NL",
+])
 
 with tab1:
     tickets = get_tickets_by_status()
@@ -153,6 +156,21 @@ with tab3:
         )
     else:
         st.success("Nenhum cliente crítico com tickets abertos no momento.")
+
+with tab4:
+    st.markdown("### Consulta livre — Operations Intelligence")
+    st.caption("Perguntas sobre tickets, interações e saúde operacional via Cortex Analyst.")
+    render_analyst_widget(
+        model_file="@CORE.SEMANTIC_STAGE/operations_model.yaml",
+        suggestions=[
+            "Quantos tickets urgentes estão abertos agora?",
+            "Qual o tempo médio de resolução por prioridade?",
+            "Quais clientes têm alto risco de churn E tickets abertos?",
+            "Qual o canal de interação mais usado nos últimos 30 dias?",
+            "Qual o sentimento médio das interações por canal?",
+        ],
+        key_prefix="ops_analyst",
+    )
 
 st.sidebar.subheader("Filtros")
 refresh = st.sidebar.button("Atualizar dados")

@@ -1,7 +1,8 @@
-"""NEXUS AI DataOps — Sales Intelligence (Sprint 2 P2)"""
+"""NEXUS AI DataOps — Sales Intelligence (Sprint 3: + NL→SQL widget)"""
 
 import streamlit as st
 from snowflake.snowpark.context import get_active_session
+from utils.cortex_analyst import render_analyst_widget
 
 st.set_page_config(page_title="Sales Intelligence", page_icon="💰", layout="wide")
 
@@ -77,7 +78,10 @@ with col4:
 
 st.divider()
 
-tab1, tab2, tab3 = st.tabs(["Pipeline de Oportunidades", "Movimento de Receita", "Análise por Tipo"])
+tab1, tab2, tab3, tab4 = st.tabs([
+    "Pipeline de Oportunidades", "Movimento de Receita", "Análise por Tipo",
+    "💬 Perguntar em NL",
+])
 
 with tab1:
     opportunities = get_revenue_opportunity_data()
@@ -146,3 +150,19 @@ with tab3:
                 st.metric("Expansion", f"${df[df['opportunity_type']=='expansion']['estimated_revenue_usd'].sum():,.0f}")
             with col_c:
                 st.metric("Renewal", f"${df[df['opportunity_type']=='renewal']['estimated_revenue_usd'].sum():,.0f}")
+
+with tab4:
+    st.markdown("### Consulta livre — Sales Intelligence")
+    st.caption("Perguntas sobre pipeline, oportunidades e movimento de receita via Cortex Analyst.")
+    render_analyst_widget(
+        model_file="@CORE.SEMANTIC_STAGE/revenue_opportunity_model.yaml",
+        suggestions=[
+            "Qual cliente tem maior score de oportunidade de upsell?",
+            "Quais renovações vencem nos próximos 60 dias?",
+            "Qual é o pipeline total estimado em USD?",
+            "Mostre os 5 maiores scores de oportunidade.",
+            "Qual o movimento de receita nos últimos 6 meses?",
+            "Quais produtos estão disponíveis no catálogo?",
+        ],
+        key_prefix="sales_analyst",
+    )

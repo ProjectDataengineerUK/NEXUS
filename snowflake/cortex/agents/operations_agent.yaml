@@ -9,7 +9,7 @@ model: claude-sonnet-4-6
 tools:
   - tool_type: cortex_analyst_textgeneration
     description: Consulta KPIs operacionais e de suporte via linguagem natural
-    semantic_model_file: "@NEXUS_APP.CONFIG.NEXUS_STAGE/semantic_models/operations_model.yaml"
+    semantic_model_file: "@NEXUS_APP.CORE.SEMANTIC_STAGE/operations_model.yaml"
 
   - tool_type: cortex_search
     description: Busca documentação operacional e runbooks no Knowledge Base

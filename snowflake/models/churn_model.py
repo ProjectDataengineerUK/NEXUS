@@ -6,13 +6,13 @@ Executado como Stored Procedure; escreve resultados em AI.CHURN_SCORES.
 
 import json
 
+from recommendation_model import run_all_orgs
 from snowflake.ml.modeling.linear_model import LogisticRegression
 from snowflake.ml.modeling.pipeline import Pipeline
 from snowflake.ml.modeling.preprocessing import StandardScaler
 from snowflake.snowpark import Session
 from snowflake.snowpark.functions import col, lit, when
 
-ORG_ID        = "ORG-DEMO-001"
 MODEL_VERSION = "1.0.0-lr"
 
 FEATURE_COLS = [
@@ -167,8 +167,6 @@ def train_and_score(session: Session) -> str:
     return f"OK: {inserted} clientes pontuados — modelo {MODEL_VERSION}"
 
 
-from recommendation_model import generate_recommendations
-
 
 # ── Entry point como Stored Procedure ────────────────────────────────────────
 
@@ -185,6 +183,6 @@ def run_churn_pipeline(session: Session, mode: str = "full") -> str:
         results.append(train_and_score(session))
 
     if mode in ("recs", "full"):
-        results.append(generate_recommendations(session))
+        results.append(run_all_orgs(session))
 
     return " | ".join(results)

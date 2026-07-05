@@ -1,0 +1,267 @@
+name: nexus_revenue_opportunity_model
+description: >
+  Modelo semântico NEXUS AI DataOps — Sales & Revenue Opportunity Intelligence.
+  Cobre pipeline de oportunidades de upsell/expansion/renewal, movimento de receita
+  por tipo de transação e catálogo de produtos. Complementa nexus_revenue_model
+  com foco em vendas ativas e pipeline, não em saúde geral do cliente.
+  Use para perguntas sobre pipeline total, scores de oportunidade, renovações
+  pendentes, análise de receita por tipo de movimento e produtos disponíveis.
+
+tables:
+  - name: revenue_opportunity_score
+    description: Score de oportunidade de receita por cliente — upsell, expansion e renewal.
+    base_table:
+      database: NEXUS_APP
+      schema: MART
+      table: REVENUE_OPPORTUNITY_SCORE
+
+    primary_key:
+      columns:
+        - score_id
+
+    dimensions:
+      - name: score_id
+        synonyms: ["id da oportunidade", "código da oportunidade"]
+        description: Identificador único da oportunidade.
+        expr: score_id
+        data_type: VARCHAR
+        unique: true
+
+      - name: customer_id
+        synonyms: ["id do cliente", "cliente associado"]
+        description: Cliente associado à oportunidade.
+        expr: customer_id
+        data_type: VARCHAR
+
+      - name: customer_name
+        synonyms: ["nome do cliente", "empresa", "conta"]
+        description: Nome do cliente com oportunidade.
+        expr: customer_name
+        data_type: VARCHAR
+
+      - name: opportunity_type
+        synonyms: ["tipo de oportunidade", "natureza da venda", "motivo"]
+        description: Tipo de oportunidade — upsell, expansion, renewal, retention.
+        expr: opportunity_type
+        data_type: VARCHAR
+
+      - name: churn_risk
+        synonyms: ["risco de churn", "probabilidade de cancelamento", "risco associado"]
+        description: Probabilidade de churn associada ao cliente desta oportunidade (0-1).
+        expr: churn_risk
+        data_type: NUMBER
+
+      - name: contract_end_date
+        synonyms: ["data de renovação", "vencimento do contrato", "expiração"]
+        description: Data de vencimento do contrato atual do cliente.
+        expr: contract_end_date
+        data_type: DATE
+
+      - name: scored_at
+        synonyms: ["data de scoring", "quando foi avaliado", "data do cálculo"]
+        description: Timestamp em que o score foi calculado.
+        expr: scored_at
+        data_type: TIMESTAMP_TZ
+
+    measures:
+      - name: opportunity_count
+        synonyms: ["número de oportunidades", "total de oportunidades", "quantidade de leads"]
+        description: Contagem total de oportunidades.
+        expr: "1"
+        data_type: NUMBER
+        agg: count
+
+      - name: avg_opportunity_score
+        synonyms: ["score médio de oportunidade", "score médio", "probabilidade média de fechamento"]
+        description: Score médio de oportunidade (0 a 1) — maior = maior probabilidade.
+        expr: opportunity_score
+        data_type: NUMBER
+        agg: avg
+
+      - name: total_pipeline_usd
+        synonyms: ["pipeline total", "receita potencial", "valor em pipeline", "total de oportunidades em USD"]
+        description: Soma da receita potencial estimada de todas as oportunidades em USD.
+        expr: estimated_revenue_usd
+        data_type: NUMBER
+        agg: sum
+
+      - name: avg_pipeline_per_customer
+        synonyms: ["pipeline médio por cliente", "ticket médio de oportunidade"]
+        description: Receita potencial média por oportunidade em USD.
+        expr: estimated_revenue_usd
+        data_type: NUMBER
+        agg: avg
+
+      - name: total_arr_in_pipeline
+        synonyms: ["ARR em pipeline", "receita anual das oportunidades"]
+        description: ARR total dos clientes com oportunidades ativas.
+        expr: arr
+        data_type: NUMBER
+        agg: sum
+
+      - name: high_score_opportunities
+        synonyms: ["oportunidades quentes", "oportunidades acima de 70%", "wins prováveis"]
+        description: Oportunidades com opportunity_score >= 0.7.
+        expr: "CASE WHEN opportunity_score >= 0.7 THEN 1 ELSE 0 END"
+        data_type: NUMBER
+        agg: sum
+
+      - name: confidence_avg
+        synonyms: ["confiança média", "confiabilidade do score", "acurácia média"]
+        description: Média da confiança do modelo ao gerar o score.
+        expr: confidence
+        data_type: NUMBER
+        agg: avg
+
+  - name: revenue_movement
+    description: Movimento mensal de receita por tipo de transação — MRR waterfall.
+    base_table:
+      database: NEXUS_APP
+      schema: MART
+      table: DT_REVENUE_MOVEMENT
+
+    primary_key:
+      columns:
+        - month
+        - transaction_type
+
+    dimensions:
+      - name: month
+        synonyms: ["mês", "período", "mês de referência"]
+        description: Mês de referência do movimento de receita (YYYY-MM).
+        expr: month
+        data_type: VARCHAR
+
+      - name: transaction_type
+        synonyms: ["tipo de transação", "movimento", "natureza do movimento de receita"]
+        description: Tipo de movimento — new_business, renewal, expansion, contraction, churn.
+        expr: transaction_type
+        data_type: VARCHAR
+
+    measures:
+      - name: transaction_count
+        synonyms: ["número de transações", "total de movimentos", "contagem"]
+        description: Número de transações no período.
+        expr: transaction_count
+        data_type: NUMBER
+        agg: sum
+
+      - name: total_revenue_movement
+        synonyms: ["valor total do movimento", "receita movimentada", "MRR waterfall total"]
+        description: Soma do valor monetário de todas as transações do período em USD.
+        expr: total_amount
+        data_type: NUMBER
+        agg: sum
+
+  - name: products
+    description: Catálogo de produtos NEXUS disponíveis — plataforma e add-ons.
+    base_table:
+      database: NEXUS_APP
+      schema: CORE
+      table: PRODUCTS
+
+    primary_key:
+      columns:
+        - product_id
+
+    dimensions:
+      - name: product_id
+        synonyms: ["id do produto", "código do produto", "SKU"]
+        description: Identificador único do produto.
+        expr: product_id
+        data_type: VARCHAR
+        unique: true
+
+      - name: product_name
+        synonyms: ["nome do produto", "produto", "plano", "oferta"]
+        description: Nome completo do produto ou plano.
+        expr: product_name
+        data_type: VARCHAR
+
+      - name: product_category
+        synonyms: ["categoria", "tipo de produto", "linha"]
+        description: Categoria — Platform, Add-on, Consumption.
+        expr: product_category
+        data_type: VARCHAR
+
+      - name: is_active
+        synonyms: ["ativo", "disponível", "à venda"]
+        description: Indica se o produto está ativo no catálogo.
+        expr: is_active
+        data_type: BOOLEAN
+
+    measures:
+      - name: product_count
+        synonyms: ["quantidade de produtos", "número de produtos", "itens no catálogo"]
+        description: Contagem de produtos ativos no catálogo.
+        expr: "1"
+        data_type: NUMBER
+        agg: count
+
+      - name: avg_unit_price
+        synonyms: ["preço médio", "ticket médio de produto", "valor médio"]
+        description: Preço médio dos produtos (unit_price) em USD.
+        expr: unit_price
+        data_type: NUMBER
+        agg: avg
+
+      - name: total_catalog_value
+        synonyms: ["valor total do catálogo", "soma de preços"]
+        description: Soma de todos os preços unitários dos produtos ativos.
+        expr: unit_price
+        data_type: NUMBER
+        agg: sum
+
+verified_queries:
+  - name: pipeline_total_por_tipo
+    question: "Qual o pipeline total de oportunidades por tipo?"
+    verified_at: "2026-06-19"
+    sql: |
+      SELECT opportunity_type,
+             COUNT(*)              AS oportunidades,
+             SUM(estimated_revenue_usd) AS pipeline_usd,
+             ROUND(AVG(opportunity_score), 2) AS avg_score
+      FROM NEXUS_APP.MART.REVENUE_OPPORTUNITY_SCORE
+      WHERE opportunity_score >= 0.5
+      GROUP BY opportunity_type
+      ORDER BY pipeline_usd DESC
+
+  - name: renovacoes_proximas_60d
+    question: "Quais renovações vencem nos próximos 60 dias?"
+    verified_at: "2026-06-19"
+    sql: |
+      SELECT customer_name, contract_end_date,
+             opportunity_score, estimated_revenue_usd, churn_risk, arr
+      FROM NEXUS_APP.MART.REVENUE_OPPORTUNITY_SCORE
+      WHERE opportunity_type = 'renewal'
+        AND contract_end_date <= DATEADD('day', 60, CURRENT_DATE())
+        AND contract_end_date >= CURRENT_DATE()
+      ORDER BY contract_end_date ASC
+
+  - name: top5_maior_oportunidade
+    question: "Quais os 5 clientes com maior score de oportunidade?"
+    verified_at: "2026-06-19"
+    sql: |
+      SELECT customer_name, opportunity_type, opportunity_score,
+             estimated_revenue_usd, arr, churn_risk
+      FROM NEXUS_APP.MART.REVENUE_OPPORTUNITY_SCORE
+      ORDER BY opportunity_score DESC, estimated_revenue_usd DESC
+      LIMIT 5
+
+  - name: movimento_receita_ultimos_6m
+    question: "Qual o movimento de receita nos últimos 6 meses?"
+    verified_at: "2026-06-19"
+    sql: |
+      SELECT month, transaction_type, transaction_count, total_amount
+      FROM NEXUS_APP.MART.DT_REVENUE_MOVEMENT
+      ORDER BY month DESC
+      LIMIT 30
+
+  - name: produtos_ativos_catalogo
+    question: "Quais produtos estão disponíveis no catálogo?"
+    verified_at: "2026-06-19"
+    sql: |
+      SELECT product_name, product_category, unit_price
+      FROM NEXUS_APP.CORE.PRODUCTS
+      WHERE is_active = TRUE
+      ORDER BY product_category, unit_price DESC

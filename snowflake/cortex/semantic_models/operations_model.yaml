@@ -1,0 +1,312 @@
+name: nexus_operations_model
+description: >
+  Modelo semântico NEXUS AI DataOps — Operations Intelligence.
+  Cobre tickets de suporte, interações com clientes e saúde operacional.
+  Use para perguntas sobre volume de tickets, SLA, tempo de resolução,
+  canais de atendimento, sentimento e clientes em risco com tickets abertos.
+
+tables:
+  - name: tickets
+    description: Tickets de suporte abertos e fechados, com prioridade, status e tipo.
+    base_table:
+      database: NEXUS_APP
+      schema: CORE
+      table: TICKETS
+
+    primary_key:
+      columns:
+        - ticket_id
+
+    dimensions:
+      - name: ticket_id
+        synonyms: ["id do ticket", "número do chamado", "código do ticket"]
+        description: Identificador único do ticket.
+        expr: ticket_id
+        data_type: VARCHAR
+        unique: true
+
+      - name: status
+        synonyms: ["situação", "estado do ticket", "aberto", "fechado"]
+        description: Status do ticket — open, in_progress, resolved, closed.
+        expr: status
+        data_type: VARCHAR
+
+      - name: priority
+        synonyms: ["prioridade", "urgência", "severidade", "criticidade"]
+        description: Prioridade do ticket — urgent, high, medium, low.
+        expr: priority
+        data_type: VARCHAR
+
+      - name: ticket_type
+        synonyms: ["tipo de ticket", "categoria do chamado", "natureza"]
+        description: Tipo do ticket — bug, feature_request, billing, support, inquiry.
+        expr: ticket_type
+        data_type: VARCHAR
+
+      - name: customer_id
+        synonyms: ["cliente", "conta", "empresa associada"]
+        description: Cliente ao qual o ticket pertence.
+        expr: customer_id
+        data_type: VARCHAR
+
+      - name: created_at
+        synonyms: ["data de abertura", "criado em", "abertura"]
+        description: Timestamp de criação do ticket.
+        expr: created_at
+        data_type: TIMESTAMP_TZ
+
+      - name: updated_at
+        synonyms: ["última atualização", "modificado em"]
+        description: Timestamp da última atualização do ticket.
+        expr: updated_at
+        data_type: TIMESTAMP_TZ
+
+    measures:
+      - name: ticket_count
+        synonyms: ["número de tickets", "quantidade de chamados", "total de tickets", "chamados"]
+        description: Contagem total de tickets.
+        expr: "1"
+        data_type: NUMBER
+        agg: count
+        agg_time_dimension: created_at
+
+      - name: open_ticket_count
+        synonyms: ["tickets abertos", "chamados em aberto", "fila aberta"]
+        description: Tickets com status = open.
+        expr: "CASE WHEN status = 'open' THEN 1 ELSE 0 END"
+        data_type: NUMBER
+        agg: sum
+
+      - name: urgent_ticket_count
+        synonyms: ["tickets urgentes", "chamados urgentes", "urgências", "P0"]
+        description: Tickets com prioridade urgent.
+        expr: "CASE WHEN priority = 'urgent' THEN 1 ELSE 0 END"
+        data_type: NUMBER
+        agg: sum
+
+      - name: avg_resolution_hours
+        synonyms: ["tempo médio de resolução", "TTR", "tempo de atendimento", "SLA médio"]
+        description: Tempo médio (em horas) entre criação e última atualização.
+        expr: "DATEDIFF('hour', created_at, COALESCE(updated_at, CURRENT_TIMESTAMP()))"
+        data_type: NUMBER
+        agg: avg
+
+  - name: interactions
+    description: Interações com clientes via email, call, chat, meeting, SMS e social.
+    base_table:
+      database: NEXUS_APP
+      schema: CORE
+      table: INTERACTIONS
+
+    primary_key:
+      columns:
+        - interaction_id
+
+    dimensions:
+      - name: interaction_id
+        synonyms: ["id da interação", "código da interação"]
+        description: Identificador único da interação.
+        expr: interaction_id
+        data_type: VARCHAR
+        unique: true
+
+      - name: customer_id
+        synonyms: ["cliente", "conta associada"]
+        description: Cliente associado à interação.
+        expr: customer_id
+        data_type: VARCHAR
+
+      - name: channel
+        synonyms: ["canal", "meio de contato", "forma de atendimento", "via"]
+        description: Canal da interação — email, call, chat, meeting, sms, social.
+        expr: channel
+        data_type: VARCHAR
+
+      - name: direction
+        synonyms: ["direção", "iniciativa", "ativo", "reativo"]
+        description: inbound (cliente iniciou) ou outbound (nós iniciamos).
+        expr: direction
+        data_type: VARCHAR
+
+      - name: outcome
+        synonyms: ["resultado", "desfecho", "saída"]
+        description: Resultado da interação — resolved, follow_up, pending, qualified, committed.
+        expr: outcome
+        data_type: VARCHAR
+
+      - name: occurred_at
+        synonyms: ["data da interação", "quando ocorreu", "data do contato"]
+        description: Timestamp em que a interação ocorreu.
+        expr: occurred_at
+        data_type: TIMESTAMP_TZ
+
+    measures:
+      - name: interaction_count
+        synonyms: ["número de interações", "total de contatos", "atividade de relacionamento"]
+        description: Contagem total de interações.
+        expr: "1"
+        data_type: NUMBER
+        agg: count
+        agg_time_dimension: occurred_at
+
+      - name: avg_sentiment
+        synonyms: ["sentimento médio", "tom das interações", "satisfação nas interações", "NPS proxy"]
+        description: Sentimento médio das interações — de -1 (negativo) a 1 (positivo).
+        expr: sentiment_score
+        data_type: NUMBER
+        agg: avg
+
+      - name: inbound_count
+        synonyms: ["contatos recebidos", "interações inbound", "demanda inbound"]
+        description: Interações iniciadas pelo cliente.
+        expr: "CASE WHEN direction = 'inbound' THEN 1 ELSE 0 END"
+        data_type: NUMBER
+        agg: sum
+
+      - name: negative_interactions
+        synonyms: ["interações negativas", "contatos negativos", "reclamações"]
+        description: Interações com sentimento_score < 0.
+        expr: "CASE WHEN sentiment_score < 0 THEN 1 ELSE 0 END"
+        data_type: NUMBER
+        agg: sum
+
+  - name: customer_health
+    description: Saúde operacional dos clientes com risco de churn, tickets e ARR.
+    base_table:
+      database: NEXUS_APP
+      schema: MART
+      table: DT_CUSTOMER_HEALTH
+
+    primary_key:
+      columns:
+        - customer_id
+
+    dimensions:
+      - name: customer_id
+        synonyms: ["id do cliente", "código do cliente"]
+        description: Identificador único do cliente.
+        expr: customer_id
+        data_type: VARCHAR
+        unique: true
+
+      - name: name
+        synonyms: ["nome do cliente", "empresa", "conta"]
+        description: Nome do cliente.
+        expr: name
+        data_type: VARCHAR
+
+      - name: segment
+        synonyms: ["segmento", "porte", "tier"]
+        description: Segmento de mercado — ENTERPRISE, MID_MARKET, SMB.
+        expr: segment
+        data_type: VARCHAR
+
+      - name: risk_level
+        synonyms: ["nível de risco", "criticidade do cliente", "risco operacional"]
+        description: Nível de risco calculado — HIGH, MEDIUM, LOW.
+        expr: risk_level
+        data_type: VARCHAR
+
+    measures:
+      - name: avg_churn_risk
+        synonyms: ["risco médio de churn", "probabilidade de cancelamento", "churn score médio"]
+        description: Probabilidade média de churn dos clientes.
+        expr: churn_risk_score
+        data_type: NUMBER
+        agg: avg
+
+      - name: total_open_tickets
+        synonyms: ["total de tickets abertos", "fila de suporte", "chamados pendentes"]
+        description: Soma dos tickets abertos por cliente.
+        expr: open_ticket_count
+        data_type: NUMBER
+        agg: sum
+
+      - name: total_arr
+        synonyms: ["ARR total operacional", "receita em risco operacional"]
+        description: ARR total dos clientes na visão operacional.
+        expr: arr
+        data_type: NUMBER
+        agg: sum
+
+      - name: critical_customers
+        synonyms: ["clientes críticos", "clientes em risco HIGH", "emergências"]
+        description: Clientes com risk_level = HIGH.
+        expr: "CASE WHEN risk_level = 'HIGH' THEN 1 ELSE 0 END"
+        data_type: NUMBER
+        agg: sum
+
+relationships:
+  - name: ticket_customer_health
+    left_table: tickets
+    right_table: customer_health
+    join_type: LEFT_OUTER
+    relationship_columns:
+      - left_column: customer_id
+        right_column: customer_id
+
+  - name: interaction_customer_health
+    left_table: interactions
+    right_table: customer_health
+    join_type: LEFT_OUTER
+    relationship_columns:
+      - left_column: customer_id
+        right_column: customer_id
+
+verified_queries:
+  - name: tickets_urgentes_abertos
+    question: "Quantos tickets urgentes estão abertos?"
+    verified_at: "2026-06-19"
+    sql: |
+      SELECT COUNT(*) AS urgent_open_tickets
+      FROM NEXUS_APP.CORE.TICKETS
+      WHERE status = 'open'
+        AND priority = 'urgent'
+
+  - name: volume_tickets_por_status_prioridade
+    question: "Qual é o volume de tickets por status e prioridade?"
+    verified_at: "2026-06-19"
+    sql: |
+      SELECT status, priority, COUNT(*) AS ticket_count
+      FROM NEXUS_APP.CORE.TICKETS
+      GROUP BY status, priority
+      ORDER BY ticket_count DESC
+
+  - name: interacoes_por_canal_30d
+    question: "Quais foram os canais de interação mais usados nos últimos 30 dias?"
+    verified_at: "2026-06-19"
+    sql: |
+      SELECT channel,
+             COUNT(*)                       AS interaction_count,
+             ROUND(AVG(sentiment_score), 2) AS avg_sentiment
+      FROM NEXUS_APP.CORE.INTERACTIONS
+      WHERE occurred_at >= DATEADD('day', -30, CURRENT_TIMESTAMP())
+      GROUP BY channel
+      ORDER BY interaction_count DESC
+
+  - name: clientes_criticos_com_tickets
+    question: "Quais clientes têm alto risco de churn E tickets abertos?"
+    verified_at: "2026-06-19"
+    sql: |
+      SELECT h.name      AS cliente,
+             h.risk_level,
+             h.churn_risk_score,
+             h.open_ticket_count,
+             h.arr
+      FROM NEXUS_APP.MART.DT_CUSTOMER_HEALTH h
+      WHERE h.risk_level = 'HIGH'
+        AND h.open_ticket_count > 0
+      ORDER BY h.churn_risk_score DESC, h.open_ticket_count DESC
+      LIMIT 20
+
+  - name: tempo_medio_resolucao_por_prioridade
+    question: "Qual o tempo médio de resolução de tickets por prioridade?"
+    verified_at: "2026-06-19"
+    sql: |
+      SELECT priority,
+             ROUND(AVG(DATEDIFF('hour', created_at,
+                 COALESCE(updated_at, CURRENT_TIMESTAMP()))), 1) AS avg_resolution_hours,
+             COUNT(*) AS ticket_count
+      FROM NEXUS_APP.CORE.TICKETS
+      GROUP BY priority
+      ORDER BY avg_resolution_hours DESC

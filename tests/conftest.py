@@ -13,6 +13,14 @@ _ROOT = pathlib.Path(__file__).parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+# ── snowflake/models/*.py also import each other as bare top-level modules
+# (e.g. `from recommendation_model import ...`), matching how the Native App
+# package stages them flat in the same IMPORTS directory at runtime. Add that
+# directory to sys.path so those sibling imports resolve locally too. ──
+_MODELS_DIR = _ROOT / "snowflake" / "models"
+if str(_MODELS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MODELS_DIR))
+
 # ── stub snowflake.ml and snowflake.snowpark (not installed in CI) ──────────
 from unittest.mock import MagicMock  # noqa: E402
 

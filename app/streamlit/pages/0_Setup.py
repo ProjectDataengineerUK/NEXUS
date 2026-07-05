@@ -1,14 +1,14 @@
 """Onboarding wizard — mapeamento de tabelas, org config e credenciais de API."""
 
 import streamlit as st
-from utils.auth import get_org_id, get_current_user
+from utils.auth import get_current_user, get_org_id
 from utils.onboarding import (
     get_onboarding_status,
     map_reference_table,
-    unmap_reference_table,
+    remove_user_org_mapping,
     save_api_credential,
     save_user_org_mapping,
-    remove_user_org_mapping,
+    unmap_reference_table,
     validate_table_schema,
 )
 
@@ -97,7 +97,7 @@ with st.expander("Passo 1: Conectar suas tabelas Snowflake", expanded=mapped_cou
 
             col_btn, col_skip = st.columns([2, 1])
             with col_btn:
-                if st.button(f"Validar e Conectar", key=f"map_{ref_name}", type="primary"):
+                if st.button("Validar e Conectar", key=f"map_{ref_name}", type="primary"):
                     if not table_input:
                         st.error("Informe o caminho da tabela no formato DATABASE.SCHEMA.TABLE")
                     else:
