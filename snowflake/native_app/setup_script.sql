@@ -1524,7 +1524,7 @@ GRANT USAGE ON PROCEDURE CORE.SP_GENERATE_EXECUTIVE_BRIEFING() TO APPLICATION RO
 
 -- Task: atualizar churn scores via Snowpark ML (corrige AT-010)
 CREATE OR REPLACE TASK CORE.TASK_RUN_CHURN_PIPELINE
-    WAREHOUSE = NEXUS_APP_WH
+    WAREHOUSE = NEXUS_COMPUTE_WH
     SCHEDULE  = 'USING CRON 0 2 * * * UTC'
     COMMENT   = 'Executa pipeline de churn diariamente às 2h UTC'
 AS
@@ -1532,7 +1532,7 @@ AS
 
 -- Task: gerar briefing executivo diário (corrige AT-010)
 CREATE OR REPLACE TASK CORE.TASK_EXECUTIVE_BRIEFING
-    WAREHOUSE = NEXUS_APP_WH
+    WAREHOUSE = NEXUS_COMPUTE_WH
     SCHEDULE  = 'USING CRON 0 7 * * * UTC'
     COMMENT   = 'Gera briefing executivo de IA todo dia às 7h UTC'
 AS
@@ -1540,7 +1540,7 @@ AS
 
 -- Task: refresh do Revenue Opportunity Score
 CREATE OR REPLACE TASK MART.TASK_REFRESH_REVENUE_SCORE
-    WAREHOUSE = NEXUS_APP_WH
+    WAREHOUSE = NEXUS_COMPUTE_WH
     SCHEDULE  = 'USING CRON 0 */6 * * * UTC'
     COMMENT   = 'Atualiza Revenue Opportunity Score a cada 6h'
 AS
@@ -1684,7 +1684,7 @@ ALTER TABLE MART.REVENUE_OPPORTUNITY_SCORE
 
 CREATE OR REPLACE DYNAMIC TABLE MART.DT_REVENUE_MOVEMENT
     TARGET_LAG = '1 hour'
-    WAREHOUSE  = NEXUS_APP_WH
+    WAREHOUSE  = NEXUS_COMPUTE_WH
     COMMENT    = 'Movimento de receita — New, Expansion, Churn por mês'
 AS
 SELECT
@@ -1782,7 +1782,7 @@ WHEN NOT MATCHED THEN INSERT (kb_name, source_url, title) VALUES (s.kb_name, s.s
 CREATE OR REPLACE CORTEX SEARCH SERVICE KBS.KB_SEARCH_SERVICE
     ON content
     ATTRIBUTES kb_name, doc_type, source_url, title
-    WAREHOUSE  = NEXUS_APP_WH
+    WAREHOUSE  = NEXUS_COMPUTE_WH
     TARGET_LAG = '7 days'
 AS (
     SELECT content, kb_name, doc_type, source_url, title, doc_id

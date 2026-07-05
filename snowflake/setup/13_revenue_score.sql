@@ -86,7 +86,7 @@ GRANT USAGE ON PROCEDURE MART.SP_SCORE_REVENUE_OPPORTUNITIES()
 -- DT de Revenue Score (view materializada — alternativa à Task)
 CREATE OR REPLACE DYNAMIC TABLE MART.DT_REVENUE_OPPORTUNITY_SCORE
     TARGET_LAG = '6 hours'
-    WAREHOUSE  = NEXUS_APP_WH
+    WAREHOUSE  = NEXUS_COMPUTE_WH
     COMMENT    = 'Revenue Opportunity Score por cliente — scoring automatico a cada 6h'
 AS
 SELECT

@@ -24,7 +24,7 @@ tools:
 
   - tool_type: sql_exec
     description: Executa queries SQL para análise de operações
-    warehouse: NEXUS_APP_WH
+    warehouse: NEXUS_COMPUTE_WH
     authorized_queries:
       - "SELECT * FROM MART.DT_CUSTOMER_HEALTH WHERE {filter}"
       - "SELECT * FROM CORE.TICKETS WHERE {filter}"

@@ -7,13 +7,13 @@ USE DATABASE NEXUS_APP;
 -- DT_EXECUTIVE_KPIS — KPIs executivos agregados por org
 CREATE OR REPLACE DYNAMIC TABLE MART.DT_EXECUTIVE_KPIS
     TARGET_LAG = '1 hour'
-    WAREHOUSE  = NEXUS_APP_WH
+    WAREHOUSE  = NEXUS_COMPUTE_WH
     COMMENT    = 'KPIs executivos por org — atualiza automaticamente a cada 1h'
 AS
 SELECT
     c.org_id,
     COUNT(DISTINCT c.customer_id)                             AS total_customers,
-    ROUND(AVG(COALESCE(cs.churn_probability, c.churn_risk_score, 0.5)) * 100, 1) AS avg_churn_risk_pct,
+    ROUND(AVG(COALESCE(cs.churn_probability, 0.5)) * 100, 1) AS avg_churn_risk_pct,
     COUNT(CASE WHEN COALESCE(cs.churn_probability, 0.5) > 0.7 THEN 1 END)        AS critical_risk_count,
     COUNT(CASE WHEN c.lifecycle_stage = 'active' THEN 1 END)  AS active_customers,
     COALESCE(SUM(c.arr), 0)                                   AS total_arr,
@@ -29,7 +29,7 @@ GROUP BY c.org_id;
 -- DT_CUSTOMER_HEALTH — perfil de saúde individual por cliente
 CREATE OR REPLACE DYNAMIC TABLE MART.DT_CUSTOMER_HEALTH
     TARGET_LAG = '1 hour'
-    WAREHOUSE  = NEXUS_APP_WH
+    WAREHOUSE  = NEXUS_COMPUTE_WH
     COMMENT    = 'Saude e segmento por cliente — lag 1h'
 AS
 SELECT
@@ -45,7 +45,7 @@ SELECT
     c.nps_score,
     c.lifecycle_stage,
     c.contract_end_date,
-    COALESCE(cs.churn_probability, c.churn_risk_score, 0.5)         AS churn_risk_score,
+    COALESCE(cs.churn_probability, 0.5)                              AS churn_risk_score,
     COALESCE(cs.risk_level, 'MEDIUM')                                AS risk_level,
     COALESCE(cs.recommended_action, 'Monitorar padrao de engajamento') AS recommended_action,
     CASE
@@ -68,12 +68,12 @@ LEFT JOIN CORE.INTERACTIONS i
 GROUP BY
     c.customer_id, c.org_id, c.name, c.email, c.segment, c.region, c.industry,
     c.arr, c.mrr, c.nps_score, c.lifecycle_stage, c.contract_end_date,
-    cs.churn_probability, c.churn_risk_score, cs.risk_level, cs.recommended_action;
+    cs.churn_probability, cs.risk_level, cs.recommended_action;
 
 -- DT_REVENUE_MOVEMENT — movimento de receita mensal (New/Expansion/Churn)
 CREATE OR REPLACE DYNAMIC TABLE MART.DT_REVENUE_MOVEMENT
     TARGET_LAG = '1 hour'
-    WAREHOUSE  = NEXUS_APP_WH
+    WAREHOUSE  = NEXUS_COMPUTE_WH
     COMMENT    = 'Movimento de receita por mes e tipo de transacao'
 AS
 SELECT
