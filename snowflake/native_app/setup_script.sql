@@ -3008,6 +3008,91 @@ WHEN NOT MATCHED THEN INSERT
     VALUES (src.transaction_id, src.org_id, src.customer_id, src.transaction_type,
             src.amount, src.transaction_date);
 
+-- SAP Orders -> CORE.TRANSACTIONS
+CREATE OR REPLACE TASK CORE.TASK_MERGE_SAP_ORDERS
+    WAREHOUSE = NEXUS_COMPUTE_WH
+    SCHEDULE  = '15 MINUTE'
+    WHEN SYSTEM$STREAM_HAS_DATA('STAGING.SAP_ORDERS_STREAM')
+AS
+MERGE INTO CORE.TRANSACTIONS tgt
+USING (
+    SELECT
+        'SAP-' || raw_data:OrderID::VARCHAR    AS transaction_id,
+        org_id,
+        'SAP-' || raw_data:CustomerID::VARCHAR AS customer_id,
+        'order'                                 AS transaction_type,
+        raw_data:Amount::DECIMAL(18,2)          AS amount,
+        raw_data:Currency::VARCHAR              AS currency,
+        raw_data:OrderDate::DATE                AS transaction_date
+    FROM STAGING.SAP_ORDERS_STREAM
+    WHERE raw_data:OrderID IS NOT NULL
+) src
+ON tgt.transaction_id = src.transaction_id
+WHEN MATCHED THEN UPDATE SET
+    amount = src.amount, status = 'completed'
+WHEN NOT MATCHED THEN INSERT
+    (transaction_id, org_id, customer_id, transaction_type, amount, currency, transaction_date)
+    VALUES (src.transaction_id, src.org_id, src.customer_id, src.transaction_type,
+            src.amount, src.currency, src.transaction_date);
+
+-- Oracle Invoices -> CORE.TRANSACTIONS
+CREATE OR REPLACE TASK CORE.TASK_MERGE_ORACLE_INVOICES
+    WAREHOUSE = NEXUS_COMPUTE_WH
+    SCHEDULE  = '15 MINUTE'
+    WHEN SYSTEM$STREAM_HAS_DATA('STAGING.ORACLE_INVOICES_STREAM')
+AS
+MERGE INTO CORE.TRANSACTIONS tgt
+USING (
+    SELECT
+        'ORCL-' || raw_data:INVOICE_ID::VARCHAR  AS transaction_id,
+        org_id,
+        'ORCL-' || raw_data:CUSTOMER_ID::VARCHAR AS customer_id,
+        'invoice'                                 AS transaction_type,
+        raw_data:AMOUNT::DECIMAL(18,2)            AS amount,
+        raw_data:INVOICE_DATE::DATE               AS transaction_date
+    FROM STAGING.ORACLE_INVOICES_STREAM
+    WHERE raw_data:INVOICE_ID IS NOT NULL
+) src
+ON tgt.transaction_id = src.transaction_id
+WHEN MATCHED THEN UPDATE SET
+    amount = src.amount, status = 'completed'
+WHEN NOT MATCHED THEN INSERT
+    (transaction_id, org_id, customer_id, transaction_type, amount, transaction_date)
+    VALUES (src.transaction_id, src.org_id, src.customer_id, src.transaction_type,
+            src.amount, src.transaction_date);
+
+-- HubSpot Companies -> CORE.ACCOUNTS
+CREATE OR REPLACE TASK CORE.TASK_MERGE_HUBSPOT_COMPANIES
+    WAREHOUSE = NEXUS_COMPUTE_WH
+    SCHEDULE  = '15 MINUTE'
+    WHEN SYSTEM$STREAM_HAS_DATA('STAGING.HUBSPOT_COMPANIES_STREAM')
+AS
+MERGE INTO CORE.ACCOUNTS tgt
+USING (
+    SELECT
+        'HS-' || raw_data:id::VARCHAR                    AS account_id,
+        org_id,
+        raw_data:properties:name::VARCHAR                AS account_name,
+        raw_data:properties:industry::VARCHAR            AS industry,
+        raw_data:properties:numberofemployees::INTEGER   AS employee_count,
+        raw_data:properties:annualrevenue::DECIMAL(18,2) AS annual_revenue,
+        raw_data:properties:domain::VARCHAR              AS website
+    FROM STAGING.HUBSPOT_COMPANIES_STREAM
+    WHERE raw_data:id IS NOT NULL
+) src
+ON tgt.account_id = src.account_id
+WHEN MATCHED THEN UPDATE SET
+    account_name   = src.account_name,
+    industry       = src.industry,
+    employee_count = src.employee_count,
+    annual_revenue = src.annual_revenue,
+    website        = src.website,
+    updated_at     = CURRENT_TIMESTAMP()
+WHEN NOT MATCHED THEN INSERT
+    (account_id, org_id, account_name, industry, employee_count, annual_revenue, website)
+    VALUES (src.account_id, src.org_id, src.account_name, src.industry,
+            src.employee_count, src.annual_revenue, src.website);
+
 -- Resume de todas as Tasks de CDC — tolerante, mesmo padrão do Sprint 3:
 -- EXECUTE TASK só é concedido ao APPLICATION depois que a versão atual
 -- (que declara o privilégio no manifest.yml) já foi instalada.
@@ -3015,10 +3100,13 @@ EXECUTE IMMEDIATE $$
 BEGIN
     ALTER TASK CORE.TASK_MERGE_SAP_CUSTOMERS      RESUME;
     ALTER TASK CORE.TASK_MERGE_SAP_INVOICES       RESUME;
+    ALTER TASK CORE.TASK_MERGE_SAP_ORDERS         RESUME;
     ALTER TASK CORE.TASK_MERGE_ORACLE_CUSTOMERS   RESUME;
     ALTER TASK CORE.TASK_MERGE_ORACLE_ORDERS      RESUME;
+    ALTER TASK CORE.TASK_MERGE_ORACLE_INVOICES    RESUME;
     ALTER TASK CORE.TASK_MERGE_HUBSPOT_CONTACTS   RESUME;
     ALTER TASK CORE.TASK_MERGE_HUBSPOT_DEALS      RESUME;
+    ALTER TASK CORE.TASK_MERGE_HUBSPOT_COMPANIES  RESUME;
     RETURN 'OK';
 EXCEPTION
     WHEN OTHER THEN
