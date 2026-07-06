@@ -123,6 +123,7 @@ CREATE TABLE IF NOT EXISTS CORE.TICKETS (
     subject         VARCHAR(1000),
     status          VARCHAR(50)   DEFAULT 'open',
     priority        VARCHAR(20)   DEFAULT 'medium',
+    ticket_type     VARCHAR(50),
     sla_breach      BOOLEAN       DEFAULT FALSE,
     sentiment_score DECIMAL(4,3),
     created_at      TIMESTAMP_TZ  DEFAULT CURRENT_TIMESTAMP(),
@@ -131,6 +132,15 @@ CREATE TABLE IF NOT EXISTS CORE.TICKETS (
 );
 
 -- Migrations: garante colunas adicionadas após versões anteriores
+EXECUTE IMMEDIATE $$
+BEGIN
+    ALTER TABLE CORE.TICKETS ADD COLUMN IF NOT EXISTS ticket_type      VARCHAR(50);
+    RETURN 'OK';
+EXCEPTION
+    WHEN OTHER THEN
+        RETURN 'SKIPPED: ' || SQLERRM;
+END;
+$$;
 EXECUTE IMMEDIATE $$
 BEGIN
     ALTER TABLE CORE.TICKETS ADD COLUMN IF NOT EXISTS sentiment_score  DECIMAL(4,3);
