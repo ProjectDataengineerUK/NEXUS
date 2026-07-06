@@ -3122,3 +3122,323 @@ ON t.setting_key = s.setting_key
 WHEN MATCHED THEN UPDATE SET setting_value = '4.0.0', updated_at = CURRENT_TIMESTAMP()
 WHEN NOT MATCHED THEN INSERT (setting_key, setting_value, description)
     VALUES (s.setting_key, s.setting_value, s.description);
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- DEMO DATA — Expansão para tabelas ainda vazias (todas as tabelas do app
+-- devem ter conteúdo de exemplo navegável no ambiente de demo/dev).
+-- Não inclui STAGING.* (zonas de pouso de pipelines reais — populadas em
+-- runtime pelos DAGs do Airflow, dado fake ali contaminaria o CDC real).
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- CORE.DOCUMENTS — contratos e docs de suporte de exemplo
+MERGE INTO CORE.DOCUMENTS t
+USING (
+    SELECT 'DOC-DEMO-001' AS document_id, 'ORG-DEMO-001' AS org_id, 'CUST-DEMO-001' AS entity_id,
+           'contract' AS entity_type, 'Contrato_AcmeCorp_2026.pdf' AS document_name, 'contract' AS document_type,
+           'completed' AS processing_status, 'Contrato de renovacao anual com upsell de modulo AI' AS summary,
+           'contract' AS contract_type, 185000.00 AS contract_value_usd,
+           DATE '2026-01-15' AS start_date, DATE '2027-01-14' AS end_date, TRUE AS auto_renewal,
+           'State of Delaware' AS governing_law UNION ALL
+    SELECT 'DOC-DEMO-002', 'ORG-DEMO-001', 'CUST-DEMO-003',
+           'contract', 'MSA_GlobalTech_2025.pdf', 'contract',
+           'completed', 'Master Service Agreement — termos padrao enterprise',
+           'msa', 95000.00,
+           DATE '2025-06-01', DATE '2026-05-31', FALSE,
+           'State of New York' UNION ALL
+    SELECT 'DOC-DEMO-003', 'ORG-DEMO-001', 'CUST-DEMO-002',
+           'support_ticket', 'Runbook_Onboarding_TechStart.pdf', 'runbook',
+           'completed', 'Guia de onboarding tecnico para novos usuarios da conta',
+           NULL, NULL,
+           NULL, NULL, NULL,
+           NULL UNION ALL
+    SELECT 'DOC-DEMO-004', 'ORG-DEMO-002', 'CUST-DEMO-011',
+           'contract', 'Contrato_LatamRetail_2026.pdf', 'contract',
+           'completed', 'Contrato inicial — plano SMB com add-on de analytics',
+           'contract', 42000.00,
+           DATE '2026-03-01', DATE '2027-02-28', TRUE,
+           'Brazil' UNION ALL
+    SELECT 'DOC-DEMO-005', 'ORG-DEMO-002', 'CUST-DEMO-012',
+           'other', 'Politica_Seguranca_Dados_v3.pdf', 'policy',
+           'completed', 'Politica interna de seguranca e privacidade de dados',
+           NULL, NULL,
+           NULL, NULL, NULL,
+           NULL
+) s ON t.document_id = s.document_id
+WHEN NOT MATCHED THEN INSERT
+    (document_id, org_id, entity_id, entity_type, document_name, document_type,
+     processing_status, summary, contract_type, contract_value_usd, start_date, end_date,
+     auto_renewal, governing_law)
+    VALUES (s.document_id, s.org_id, s.entity_id, s.entity_type, s.document_name, s.document_type,
+            s.processing_status, s.summary, s.contract_type, s.contract_value_usd, s.start_date, s.end_date,
+            s.auto_renewal, s.governing_law);
+
+-- AI.DOCUMENT_CHUNKS — chunks dos documentos acima
+MERGE INTO AI.DOCUMENT_CHUNKS t
+USING (
+    SELECT 'CHUNK-DEMO-001' AS chunk_id, 'DOC-DEMO-001' AS document_id, 'ORG-DEMO-001' AS org_id,
+           'Contrato_AcmeCorp_2026.pdf' AS document_name, 'contract' AS document_type,
+           'Termos de Renovacao' AS section_title, 0 AS chunk_index,
+           'Este contrato renova automaticamente por periodos de 12 meses, salvo notificacao com 60 dias de antecedencia. O valor anual e de USD 185.000, incluindo o modulo AI Insights adicionado nesta renovacao.' AS chunk_text UNION ALL
+    SELECT 'CHUNK-DEMO-002', 'DOC-DEMO-002', 'ORG-DEMO-001',
+           'MSA_GlobalTech_2025.pdf', 'contract',
+           'Escopo de Servicos', 0,
+           'O provedor prestara servicos de plataforma de dados e IA conforme descrito no Anexo A, com SLA de disponibilidade de 99.9% e suporte 24x7 para incidentes criticos.' UNION ALL
+    SELECT 'CHUNK-DEMO-003', 'DOC-DEMO-003', 'ORG-DEMO-001',
+           'Runbook_Onboarding_TechStart.pdf', 'runbook',
+           'Passo 1 — Configuracao Inicial', 0,
+           'Apos o provisionamento da conta, o administrador deve mapear as tabelas de clientes e transacoes via a pagina de Setup, e convidar os usuarios analistas.' UNION ALL
+    SELECT 'CHUNK-DEMO-004', 'DOC-DEMO-004', 'ORG-DEMO-002',
+           'Contrato_LatamRetail_2026.pdf', 'contract',
+           'Condicoes Comerciais', 0,
+           'Plano SMB com limite de 5 usuarios analistas, add-on de analytics avancado incluso, faturamento mensal em BRL.' UNION ALL
+    SELECT 'CHUNK-DEMO-005', 'DOC-DEMO-005', 'ORG-DEMO-002',
+           'Politica_Seguranca_Dados_v3.pdf', 'policy',
+           'Classificacao de Dados', 0,
+           'Todos os dados pessoais identificaveis (PII) devem ser mascarados para usuarios sem a role NEXUS_ADMIN, conforme politica de governanca vigente.'
+) s ON t.chunk_id = s.chunk_id
+WHEN NOT MATCHED THEN INSERT
+    (chunk_id, document_id, org_id, document_name, document_type, section_title, chunk_index, chunk_text, char_count)
+    VALUES (s.chunk_id, s.document_id, s.org_id, s.document_name, s.document_type, s.section_title, s.chunk_index,
+            s.chunk_text, LENGTH(s.chunk_text));
+
+-- AI.EMBEDDINGS — vetor fake (placeholder) para cada chunk acima; embeddings
+-- reais sao gerados pelo pipeline de Cortex Search em producao (ver
+-- snowflake/models/embedding_pipeline.py) — aqui so preenche a tabela para
+-- que nao fique vazia em ambientes de demo sem o pipeline rodando.
+INSERT INTO AI.EMBEDDINGS (chunk_id, org_id, document_id, embedding, model_name)
+SELECT
+    c.chunk_id, c.org_id, c.document_id,
+    (SELECT ARRAY_AGG(0.0::FLOAT) FROM TABLE(GENERATOR(ROWCOUNT => 1024)))::VECTOR(FLOAT, 1024),
+    'e5-base-v2'
+FROM AI.DOCUMENT_CHUNKS c
+WHERE c.document_id IN ('DOC-DEMO-001', 'DOC-DEMO-002', 'DOC-DEMO-003', 'DOC-DEMO-004', 'DOC-DEMO-005')
+  AND NOT EXISTS (SELECT 1 FROM AI.EMBEDDINGS e WHERE e.chunk_id = c.chunk_id);
+
+-- AI.REVENUE_FORECAST — forecast de exemplo (sera substituido por execucoes
+-- reais de CORE.SP_RUN_FORECAST quando o Sprint 5 estiver completo)
+MERGE INTO AI.REVENUE_FORECAST t
+USING (
+    SELECT 'ORG-DEMO-001' AS org_id, DATEADD('day', seq4() + 1, CURRENT_DATE()) AS forecast_date,
+           125000.00 + (seq4() * 850.0)                      AS forecast_value,
+           (125000.00 + (seq4() * 850.0)) * 0.85              AS lower_bound,
+           (125000.00 + (seq4() * 850.0)) * 1.15              AS upper_bound,
+           'total_revenue' AS metric, '1.0.0-seed' AS model_version
+    FROM TABLE(GENERATOR(ROWCOUNT => 14))
+) s ON t.org_id = s.org_id AND t.forecast_date = s.forecast_date AND t.metric = s.metric
+WHEN NOT MATCHED THEN INSERT
+    (org_id, forecast_date, forecast_value, lower_bound, upper_bound, metric, model_version)
+    VALUES (s.org_id, s.forecast_date, s.forecast_value, s.lower_bound, s.upper_bound, s.metric, s.model_version);
+
+-- AI.ANOMALY_ALERTS — alertas de exemplo (sera substituido por execucoes
+-- reais de CORE.SP_RUN_ANOMALY_DETECTION quando o Sprint 5 estiver completo)
+MERGE INTO AI.ANOMALY_ALERTS t
+USING (
+    SELECT 'ALERT-DEMO-001' AS alert_id, 'ORG-DEMO-001' AS org_id, 'daily_revenue' AS metric_name,
+           DATEADD('day', -2, CURRENT_DATE()) AS metric_date, 42000.00 AS metric_value, 125000.00 AS expected_value,
+           -66.4 AS deviation_pct, TRUE AS is_anomaly, 'HIGH' AS severity, '1.0.0-seed' AS model_version UNION ALL
+    SELECT 'ALERT-DEMO-002', 'ORG-DEMO-001', 'avg_health_score',
+           DATEADD('day', -5, CURRENT_DATE()), 38.0, 68.0,
+           -44.1, TRUE, 'MEDIUM', '1.0.0-seed' UNION ALL
+    SELECT 'ALERT-DEMO-003', 'ORG-DEMO-002', 'arr_at_risk',
+           DATEADD('day', -1, CURRENT_DATE()), 95000.00, 40000.00,
+           137.5, TRUE, 'HIGH', '1.0.0-seed'
+) s ON t.alert_id = s.alert_id
+WHEN NOT MATCHED THEN INSERT
+    (alert_id, org_id, metric_name, metric_date, metric_value, expected_value, deviation_pct,
+     is_anomaly, severity, model_version)
+    VALUES (s.alert_id, s.org_id, s.metric_name, s.metric_date, s.metric_value, s.expected_value,
+            s.deviation_pct, s.is_anomaly, s.severity, s.model_version);
+
+-- AUDIT.ACTION_LOG
+MERGE INTO AUDIT.ACTION_LOG t
+USING (
+    SELECT 'ACTION-DEMO-001' AS action_id, 'ORG-DEMO-001' AS org_id, 'NEXUS_ADMIN' AS user_name, 'NEXUS_ADMIN' AS role_name,
+           'update' AS action_type, 'customer' AS object_type, 'CUST-DEMO-001' AS object_id,
+           OBJECT_CONSTRUCT('field', 'lifecycle_stage', 'old_value', 'at_risk', 'new_value', 'active') AS details UNION ALL
+    SELECT 'ACTION-DEMO-002', 'ORG-DEMO-001', 'NEXUS_ANALYST', 'NEXUS_ANALYST',
+           'create', 'recommendation', NULL,
+           OBJECT_CONSTRUCT('recommendation_type', 'churn_prevention', 'customer_id', 'CUST-DEMO-003') UNION ALL
+    SELECT 'ACTION-DEMO-003', 'ORG-DEMO-002', 'NEXUS_ANALYST_2', 'NEXUS_ANALYST',
+           'approve', 'approval_queue', NULL,
+           OBJECT_CONSTRUCT('action_type', 'discount_approval', 'amount_usd', 5000)
+) s ON t.action_id = s.action_id
+WHEN NOT MATCHED THEN INSERT (action_id, org_id, user_name, role_name, action_type, object_type, object_id, details)
+    VALUES (s.action_id, s.org_id, s.user_name, s.role_name, s.action_type, s.object_type, s.object_id, s.details);
+
+-- AUDIT.CORTEX_ANALYST_LOG
+MERGE INTO AUDIT.CORTEX_ANALYST_LOG t
+USING (
+    SELECT 'QUERY-DEMO-001' AS query_id, 'ORG-DEMO-001' AS org_id, 'NEXUS_ADMIN' AS user_name, 'NEXUS_ADMIN' AS user_role,
+           'Quantos clientes estao em risco de churn alto?' AS question,
+           'SELECT COUNT(*) FROM AI.CHURN_SCORES WHERE risk_level = ' || CHR(39) || CHR(39) || 'HIGH' || CHR(39) || CHR(39) AS generated_sql,
+           'mistral-large2' AS model_used, 850 AS latency_ms, TRUE AS was_helpful UNION ALL
+    SELECT 'QUERY-DEMO-002', 'ORG-DEMO-002', 'NEXUS_ANALYST_2', 'NEXUS_ANALYST',
+           'Qual o tempo medio de resolucao de tickets urgentes?',
+           'SELECT AVG(DATEDIFF(hour, created_at, resolved_at)) FROM CORE.TICKETS WHERE priority = ' || CHR(39) || CHR(39) || 'urgent' || CHR(39) || CHR(39),
+           'mistral-large2', 1120, TRUE
+) s ON t.query_id = s.query_id
+WHEN NOT MATCHED THEN INSERT
+    (query_id, org_id, user_name, user_role, question, generated_sql, model_used, latency_ms, was_helpful)
+    VALUES (s.query_id, s.org_id, s.user_name, s.user_role, s.question, s.generated_sql, s.model_used,
+            s.latency_ms, s.was_helpful);
+
+-- AI.AGENT_SESSIONS
+MERGE INTO AI.AGENT_SESSIONS t
+USING (
+    SELECT 'SESSION-DEMO-001' AS session_id, 'ORG-DEMO-001' AS org_id, 'NEXUS_ADMIN' AS user_name,
+           'executive' AS agent_type, 'ended' AS status, 4 AS message_count UNION ALL
+    SELECT 'SESSION-DEMO-002', 'ORG-DEMO-002', 'NEXUS_ANALYST_2',
+           'operations', 'active', 2
+) s ON t.session_id = s.session_id
+WHEN NOT MATCHED THEN INSERT (session_id, org_id, user_name, agent_type, status, message_count)
+    VALUES (s.session_id, s.org_id, s.user_name, s.agent_type, s.status, s.message_count);
+
+-- AI.AGENT_MESSAGES — mensagens das sessoes acima
+MERGE INTO AI.AGENT_MESSAGES t
+USING (
+    SELECT 'MSG-DEMO-001' AS message_id, 'SESSION-DEMO-001' AS session_id, 'ORG-DEMO-001' AS org_id,
+           'user' AS role, 'Como esta o pipeline de receita este trimestre?' AS content UNION ALL
+    SELECT 'MSG-DEMO-002', 'SESSION-DEMO-001', 'ORG-DEMO-001',
+           'assistant', 'O pipeline total e de USD 1.2M, com 60% concentrado em oportunidades de upsell.' UNION ALL
+    SELECT 'MSG-DEMO-003', 'SESSION-DEMO-002', 'ORG-DEMO-002',
+           'user', 'Quais tickets criticos estao abertos?' UNION ALL
+    SELECT 'MSG-DEMO-004', 'SESSION-DEMO-002', 'ORG-DEMO-002',
+           'assistant', 'Ha 2 tickets urgentes abertos, ambos relacionados a cobranca duplicada.'
+) s ON t.message_id = s.message_id
+WHEN NOT MATCHED THEN INSERT (message_id, session_id, org_id, role, content)
+    VALUES (s.message_id, s.session_id, s.org_id, s.role, s.content);
+
+-- AUDIT.AGENT_CHAT_LOG
+MERGE INTO AUDIT.AGENT_CHAT_LOG t
+USING (
+    SELECT 'CHATLOG-DEMO-001' AS message_id, 'SESSION-DEMO-001' AS session_id, 'ORG-DEMO-001' AS org_id,
+           'NEXUS_ADMIN' AS user_name, 'assistant' AS role, 'O pipeline total e de USD 1.2M...' AS content,
+           'cortex_analyst' AS tool_name, 'mistral-large2' AS model_used, 920 AS latency_ms UNION ALL
+    SELECT 'CHATLOG-DEMO-002', 'SESSION-DEMO-002', 'ORG-DEMO-002',
+           'NEXUS_ANALYST_2', 'assistant', 'Ha 2 tickets urgentes abertos...',
+           'cortex_search', 'mistral-large2', 640
+) s ON t.message_id = s.message_id
+WHEN NOT MATCHED THEN INSERT
+    (message_id, session_id, org_id, user_name, role, content, tool_name, model_used, latency_ms)
+    VALUES (s.message_id, s.session_id, s.org_id, s.user_name, s.role, s.content, s.tool_name,
+            s.model_used, s.latency_ms);
+
+-- AUDIT.PROMPT_LOG
+MERGE INTO AUDIT.PROMPT_LOG t
+USING (
+    SELECT 'PROMPT-DEMO-001' AS log_id, 'SESSION-DEMO-001' AS session_id, 'ORG-DEMO-001' AS org_id,
+           'NEXUS_ADMIN' AS user_name, 'NEXUS_ADMIN' AS role_name, 'executive_agent' AS agent_id,
+           'Gere uma recomendacao de retencao para o cliente CUST-DEMO-003' AS prompt_text,
+           OBJECT_CONSTRUCT('tables', ARRAY_CONSTRUCT('AI.CHURN_SCORES', 'CORE.CUSTOMERS')) AS data_sources,
+           'Recomendado contato imediato do CSM com oferta de desconto de retencao.' AS response_summary,
+           320 AS cortex_tokens_used, 780 AS latency_ms UNION ALL
+    SELECT 'PROMPT-DEMO-002', 'SESSION-DEMO-002', 'ORG-DEMO-002',
+           'NEXUS_ANALYST_2', 'NEXUS_ANALYST', 'operations_agent',
+           'Resuma os tickets criticos abertos para ORG-DEMO-002',
+           OBJECT_CONSTRUCT('tables', ARRAY_CONSTRUCT('CORE.TICKETS')),
+           '2 tickets urgentes relacionados a cobranca e ingestao de dados.',
+           210, 540
+) s ON t.log_id = s.log_id
+WHEN NOT MATCHED THEN INSERT
+    (log_id, session_id, org_id, user_name, role_name, agent_id, prompt_text, data_sources,
+     response_summary, cortex_tokens_used, latency_ms)
+    VALUES (s.log_id, s.session_id, s.org_id, s.user_name, s.role_name, s.agent_id, s.prompt_text,
+            s.data_sources, s.response_summary, s.cortex_tokens_used, s.latency_ms);
+
+-- AUDIT.DATA_QUALITY_RESULTS
+MERGE INTO AUDIT.DATA_QUALITY_RESULTS t
+USING (
+    SELECT 'DQ-DEMO-001' AS result_id, 'ORG-DEMO-001' AS org_id, 'CORE.CUSTOMERS' AS table_name,
+           'null_email_pct' AS metric_name, 0.02 AS metric_value, 0.05 AS threshold, 'PASS' AS status UNION ALL
+    SELECT 'DQ-DEMO-002', 'ORG-DEMO-001', 'CORE.TRANSACTIONS',
+           'duplicate_transaction_id_pct', 0.0, 0.01, 'PASS' UNION ALL
+    SELECT 'DQ-DEMO-003', 'ORG-DEMO-002', 'CORE.TICKETS',
+           'null_priority_pct', 0.08, 0.05, 'FAIL'
+) s ON t.result_id = s.result_id
+WHEN NOT MATCHED THEN INSERT (result_id, org_id, table_name, metric_name, metric_value, threshold, status)
+    VALUES (s.result_id, s.org_id, s.table_name, s.metric_name, s.metric_value, s.threshold, s.status);
+
+-- AUDIT.ACCESS_LOG
+MERGE INTO AUDIT.ACCESS_LOG t
+USING (
+    SELECT 'ACCESS-DEMO-001' AS access_id, 'ORG-DEMO-001' AS org_id, 'NEXUS_ADMIN' AS user_name,
+           'NEXUS_ADMIN' AS role_name, 'table' AS resource_type, 'AI.CHURN_SCORES' AS resource_name,
+           'SELECT' AS action, TRUE AS success UNION ALL
+    SELECT 'ACCESS-DEMO-002', 'ORG-DEMO-002', 'NEXUS_ANALYST_2',
+           'NEXUS_ANALYST', 'table', 'CORE.CUSTOMERS',
+           'SELECT', TRUE UNION ALL
+    SELECT 'ACCESS-DEMO-003', 'ORG-DEMO-002', 'NEXUS_ANALYST_2',
+           'NEXUS_ANALYST', 'table', 'AUDIT.ACTION_LOG',
+           'SELECT', FALSE
+) s ON t.access_id = s.access_id
+WHEN NOT MATCHED THEN INSERT (access_id, org_id, user_name, role_name, resource_type, resource_name, action, success)
+    VALUES (s.access_id, s.org_id, s.user_name, s.role_name, s.resource_type, s.resource_name, s.action, s.success);
+
+-- CORE.APPROVAL_QUEUE
+MERGE INTO CORE.APPROVAL_QUEUE t
+USING (
+    SELECT 'APPROVAL-DEMO-001' AS approval_id, 'ORG-DEMO-001' AS org_id, 'discount_approval' AS action_type,
+           'CUST-DEMO-003' AS entity_id, OBJECT_CONSTRUCT('discount_pct', 15, 'reason', 'retention') AS payload,
+           'approved' AS status, 'NEXUS_ANALYST' AS requested_by, 'NEXUS_ADMIN' AS approved_by UNION ALL
+    SELECT 'APPROVAL-DEMO-002', 'ORG-DEMO-002', 'contract_amendment',
+           'CUST-DEMO-012', OBJECT_CONSTRUCT('amendment_type', 'extend_term', 'months', 12),
+           'pending', 'NEXUS_ANALYST_2', NULL
+) s ON t.approval_id = s.approval_id
+WHEN NOT MATCHED THEN INSERT (approval_id, org_id, action_type, entity_id, payload, status, requested_by, approved_by)
+    VALUES (s.approval_id, s.org_id, s.action_type, s.entity_id, s.payload, s.status, s.requested_by, s.approved_by);
+
+-- AI.EXECUTIVE_BRIEFINGS
+MERGE INTO AI.EXECUTIVE_BRIEFINGS t
+USING (
+    SELECT 'BRIEF-DEMO-001' AS briefing_id, 'ORG-DEMO-001' AS org_id, DATEADD('day', -1, CURRENT_DATE()) AS briefing_date,
+           'DAILY' AS briefing_type,
+           'Receita total estavel em USD 1.2M ARR. 2 clientes de alto risco identificados nesta semana — CUST-DEMO-003 e CUST-DEMO-007. Pipeline de upsell cresceu 8% no mes.' AS content,
+           OBJECT_CONSTRUCT('total_arr', 1200000, 'at_risk_count', 2, 'pipeline_growth_pct', 8) AS kpi_snapshot UNION ALL
+    SELECT 'BRIEF-DEMO-002', 'ORG-DEMO-002', DATEADD('day', -1, CURRENT_DATE()),
+           'DAILY',
+           'ORG-DEMO-002 segue em fase de ramp-up. 3 clientes SMB ativos, todos com churn risk elevado — recomenda-se QBR proativo nas proximas 2 semanas.',
+           OBJECT_CONSTRUCT('total_arr', 210000, 'at_risk_count', 3, 'pipeline_growth_pct', 0)
+) s ON t.briefing_id = s.briefing_id
+WHEN NOT MATCHED THEN INSERT (briefing_id, org_id, briefing_date, briefing_type, content, kpi_snapshot)
+    VALUES (s.briefing_id, s.org_id, s.briefing_date, s.briefing_type, s.content, s.kpi_snapshot);
+
+-- KBS.DOCUMENTS — conteudo indexavel de exemplo (alem das KBS.SOURCES ja existentes)
+MERGE INTO KBS.DOCUMENTS t
+USING (
+    SELECT 'KBDOC-DEMO-001' AS doc_id, 'KB_SNOWFLAKE_CORE' AS kb_name, 'Dynamic Tables Overview' AS title,
+           'Dynamic Tables automatizam pipelines de transformacao declarativos, com refresh incremental gerenciado pelo Snowflake conforme o TARGET_LAG configurado.' AS content,
+           'https://docs.snowflake.com/en/user-guide/dynamic-tables-intro' AS source_url, 'documentation' AS doc_type, '1.0' AS version UNION ALL
+    SELECT 'KBDOC-DEMO-002', 'KB_CORTEX_AI', 'Cortex Analyst',
+           'Cortex Analyst converte perguntas em linguagem natural em SQL, usando um modelo semantico declarado em YAML que descreve tabelas, dimensoes e metricas.',
+           'https://docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-analyst', 'documentation', '1.0' UNION ALL
+    SELECT 'KBDOC-DEMO-003', 'KB_CORTEX_AI', 'Cortex Search Overview',
+           'Cortex Search oferece busca semantica e por palavra-chave sobre texto nao estruturado, indexando documentos automaticamente via Snowpipe Streaming interno.',
+           'https://docs.snowflake.com/en/user-guide/cortex-search/cortex-search-overview', 'documentation', '1.0'
+) s ON t.doc_id = s.doc_id
+WHEN NOT MATCHED THEN INSERT (doc_id, kb_name, title, content, source_url, doc_type, version)
+    VALUES (s.doc_id, s.kb_name, s.title, s.content, s.source_url, s.doc_type, s.version);
+
+-- KBS.SEARCH_LOGS
+MERGE INTO KBS.SEARCH_LOGS t
+USING (
+    SELECT 'KBLOG-DEMO-001' AS log_id, 'KB_SNOWFLAKE_CORE' AS kb_name, 'como funciona dynamic table' AS query_text,
+           3 AS result_count, 'KBDOC-DEMO-001' AS top_doc_id, 'helpful' AS user_feedback, 210 AS latency_ms UNION ALL
+    SELECT 'KBLOG-DEMO-002', 'KB_CORTEX_AI', 'diferenca entre cortex search e cortex analyst',
+           4, 'KBDOC-DEMO-002', 'helpful', 340
+) s ON t.log_id = s.log_id
+WHEN NOT MATCHED THEN INSERT (log_id, kb_name, query_text, result_count, top_doc_id, user_feedback, latency_ms)
+    VALUES (s.log_id, s.kb_name, s.query_text, s.result_count, s.top_doc_id, s.user_feedback, s.latency_ms);
+
+-- AI.AGENT_MEMORY
+MERGE INTO AI.AGENT_MEMORY t
+USING (
+    SELECT 'MEMORY-DEMO-001' AS memory_id, 'ORG-DEMO-001' AS org_id, 'NEXUS_ADMIN' AS user_name,
+           'executive_agent' AS agent_name, 'SESSION-DEMO-001' AS session_id, 'last_topic' AS memory_key,
+           OBJECT_CONSTRUCT('topic', 'revenue_pipeline', 'last_discussed_customer', 'CUST-DEMO-003') AS memory_value UNION ALL
+    SELECT 'MEMORY-DEMO-002', 'ORG-DEMO-002', 'NEXUS_ANALYST_2',
+           'operations_agent', 'SESSION-DEMO-002', 'last_topic',
+           OBJECT_CONSTRUCT('topic', 'urgent_tickets', 'ticket_count_last_seen', 2)
+) s ON t.memory_id = s.memory_id
+WHEN NOT MATCHED THEN INSERT (memory_id, org_id, user_name, agent_name, session_id, memory_key, memory_value)
+    VALUES (s.memory_id, s.org_id, s.user_name, s.agent_name, s.session_id, s.memory_key, s.memory_value);</new_string>
+
