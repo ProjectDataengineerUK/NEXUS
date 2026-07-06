@@ -17,32 +17,38 @@ privileges:
       description: "Necessário para o refresh automático das Dynamic Tables (MART/AI)."
 
 references:
-  - name: customer_table
-    label: "Tabela de Clientes"
-    description: >
-      Mapeie sua tabela principal de clientes. Colunas minimas: customer_id, email, created_at.
-      O NEXUS usa esta tabela para calcular churn score e health score.
-    object_type: TABLE
-    register_callback: core.register_reference
-    required: false
+  - customer_table:
+      label: "Tabela de Clientes"
+      description: >
+        Mapeie sua tabela principal de clientes. Colunas minimas: customer_id, email, created_at.
+        O NEXUS usa esta tabela para calcular churn score e health score.
+      privileges:
+        - SELECT
+      object_type: TABLE
+      register_callback: core.register_reference
+      required_at_setup: false
 
-  - name: transactions_table
-    label: "Tabela de Transacoes"
-    description: >
-      Mapeie sua tabela de transacoes ou faturamento. Colunas minimas: transaction_id,
-      customer_id, amount, created_at.
-    object_type: TABLE
-    register_callback: core.register_reference
-    required: false
+  - transactions_table:
+      label: "Tabela de Transacoes"
+      description: >
+        Mapeie sua tabela de transacoes ou faturamento. Colunas minimas: transaction_id,
+        customer_id, amount, created_at.
+      privileges:
+        - SELECT
+      object_type: TABLE
+      register_callback: core.register_reference
+      required_at_setup: false
 
-  - name: events_table
-    label: "Tabela de Eventos de Produto"
-    description: >
-      Eventos de uso do produto para analise de engajamento. Colunas minimas:
-      user_id, event_name, occurred_at.
-    object_type: TABLE
-    register_callback: core.register_reference
-    required: false
+  - events_table:
+      label: "Tabela de Eventos de Produto"
+      description: >
+        Eventos de uso do produto para analise de engajamento. Colunas minimas:
+        user_id, event_name, occurred_at.
+      privileges:
+        - SELECT
+      object_type: TABLE
+      register_callback: core.register_reference
+      required_at_setup: false
 
 configuration:
   log_level: INFO
