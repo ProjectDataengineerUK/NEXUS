@@ -1334,6 +1334,16 @@ CREATE ROW ACCESS POLICY IF NOT EXISTS CORE.RAP_ORG_ISOLATION
 -- corrige instalações já existentes (é no-op se a policy já existe), por
 -- isso o ALTER SET BODY abaixo garante que a versão corrigida da policy
 -- seja aplicada tanto em installs novos quanto em upgrades.
+-- BUG CORRIGIDO #2: Dynamic Tables (MART.DT_CUSTOMER_HEALTH, DT_EXECUTIVE_KPIS,
+-- AI.DT_SUPPORT_INTELLIGENCE etc.) fazem refresh em background como o usuário
+-- interno 'SYSTEM' do Snowflake (não como o usuário que abriu o app) — doc:
+-- "By default, Snowflake refreshes a dynamic table as an internal SYSTEM user
+-- using the owner role." Sem esse bypass, RAP_ORG_ISOLATION bloqueia a própria
+-- query de refresh da DT contra CORE.CUSTOMERS (e demais tabelas com RAP),
+-- fazendo a DT "refreshar com sucesso" mas sempre com ZERO linhas — sintoma:
+-- tabelas base mostravam dados, mas todo KPI da Home/Dynamic Table ficava
+-- zerado, mesmo com o bypass de NEXUS_ADMIN da correção anterior (que só vale
+-- para sessões interativas, não para o refresh em background).
 ALTER ROW ACCESS POLICY CORE.RAP_ORG_ISOLATION SET BODY ->
   (
     -- Permite acesso se o usuário está mapeado para este org_id (login real)
@@ -1344,6 +1354,8 @@ ALTER ROW ACCESS POLICY CORE.RAP_ORG_ISOLATION SET BODY ->
     )
     -- Admins da aplicação enxergam todos os orgs (suporte, debug, demo)
     OR IS_APPLICATION_ROLE_IN_SESSION('NEXUS_ADMIN')
+    -- Refresh em background de Dynamic Tables e Tasks roda como usuário SYSTEM
+    OR CURRENT_USER() = 'SYSTEM'
     -- Fallback: se a tabela de mapeamento estiver vazia, permite tudo
     -- (estado inicial do install, antes de qualquer usuário ser mapeado)
     OR NOT EXISTS (SELECT 1 FROM CONFIG.ORG_USER_MAP)
