@@ -1310,17 +1310,42 @@ WHEN NOT MATCHED THEN INSERT (source_name, is_active) VALUES (s.source_name, s.i
 -- IF NOT EXISTS (não OR REPLACE): Snowflake recusa substituir uma policy
 -- já associada a tabelas ("cannot be dropped/replaced as it is associated
 -- with one or more entities") — em upgrades a policy já está anexada às
--- ~18 tabelas abaixo desde o install anterior.
+-- ~18 tabelas abaixo desde o install anterior. O corpo real da policy é
+-- definido/atualizado logo abaixo via ALTER ... SET BODY, que funciona
+-- mesmo com a policy já anexada (ao contrário de CREATE OR REPLACE).
 CREATE ROW ACCESS POLICY IF NOT EXISTS CORE.RAP_ORG_ISOLATION
   AS (row_org_id VARCHAR) RETURNS BOOLEAN ->
   (
-    -- Permite acesso se usuário está mapeado para este org_id
     EXISTS (
       SELECT 1 FROM CONFIG.ORG_USER_MAP m
       WHERE m.user_name = CURRENT_USER()
         AND m.org_id    = row_org_id
     )
-    -- Fallback: se tabela de mapeamento vazia, permite tudo (estado inicial do install)
+    OR NOT EXISTS (SELECT 1 FROM CONFIG.ORG_USER_MAP)
+  );
+
+-- BUG CORRIGIDO: CONFIG.ORG_USER_MAP.user_name guarda nomes de ROLE
+-- ('NEXUS_ADMIN', 'NEXUS_ANALYST_2'), não logins reais do Snowflake — mas
+-- a policy comparava com CURRENT_USER() (login real). Como a tabela nunca
+-- fica vazia (tem os seeds de demo), o fallback "OR NOT EXISTS" nunca era
+-- acionado, e qualquer usuário real cujo login não fosse literalmente
+-- "NEXUS_ADMIN" via TODAS as tabelas com RAP retornarem zero linhas — daí
+-- o app parecer "sem nenhum dado". CREATE...IF NOT EXISTS acima não
+-- corrige instalações já existentes (é no-op se a policy já existe), por
+-- isso o ALTER SET BODY abaixo garante que a versão corrigida da policy
+-- seja aplicada tanto em installs novos quanto em upgrades.
+ALTER ROW ACCESS POLICY CORE.RAP_ORG_ISOLATION SET BODY ->
+  (
+    -- Permite acesso se o usuário está mapeado para este org_id (login real)
+    EXISTS (
+      SELECT 1 FROM CONFIG.ORG_USER_MAP m
+      WHERE m.user_name = CURRENT_USER()
+        AND m.org_id    = row_org_id
+    )
+    -- Admins da aplicação enxergam todos os orgs (suporte, debug, demo)
+    OR IS_APPLICATION_ROLE_IN_SESSION('NEXUS_ADMIN')
+    -- Fallback: se a tabela de mapeamento estiver vazia, permite tudo
+    -- (estado inicial do install, antes de qualquer usuário ser mapeado)
     OR NOT EXISTS (SELECT 1 FROM CONFIG.ORG_USER_MAP)
   );
 
