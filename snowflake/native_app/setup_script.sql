@@ -591,7 +591,6 @@ LANGUAGE PYTHON
 RUNTIME_VERSION = '3.11'
 PACKAGES = ('snowflake-snowpark-python')
 HANDLER = 'process_document'
-EXECUTE AS CALLER
 AS $$
 import json
 
@@ -722,7 +721,6 @@ LANGUAGE PYTHON
 RUNTIME_VERSION = '3.11'
 PACKAGES = ('snowflake-snowpark-python')
 HANDLER = 'run'
-EXECUTE AS CALLER
 AS $$
 def run(session, p_org_id: str) -> str:
     org_filter = '' if p_org_id == 'ALL' else f"AND org_id = '{p_org_id}'"
