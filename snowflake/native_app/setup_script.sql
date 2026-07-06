@@ -1297,7 +1297,11 @@ USING (
 WHEN NOT MATCHED THEN INSERT (source_name, is_active) VALUES (s.source_name, s.is_active);
 
 -- Row Access Policy — filtra por org_id usando CONFIG.ORG_USER_MAP
-CREATE OR REPLACE ROW ACCESS POLICY CORE.RAP_ORG_ISOLATION
+-- IF NOT EXISTS (não OR REPLACE): Snowflake recusa substituir uma policy
+-- já associada a tabelas ("cannot be dropped/replaced as it is associated
+-- with one or more entities") — em upgrades a policy já está anexada às
+-- ~18 tabelas abaixo desde o install anterior.
+CREATE ROW ACCESS POLICY IF NOT EXISTS CORE.RAP_ORG_ISOLATION
   AS (row_org_id VARCHAR) RETURNS BOOLEAN ->
   (
     -- Permite acesso se usuário está mapeado para este org_id
