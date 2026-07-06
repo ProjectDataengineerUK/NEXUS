@@ -21,7 +21,7 @@ def get_revenue_opportunity_data() -> list[dict]:
             d.estimated_revenue_usd,
             d.contract_end_date,
             d.scored_at
-        FROM MART.DT_REVENUE_OPPORTUNITY_SCORE d
+        FROM MART.REVENUE_OPPORTUNITY_SCORE d
         ORDER BY d.opportunity_score DESC, d.estimated_revenue_usd DESC
         LIMIT 50
     """).collect()
@@ -53,7 +53,7 @@ def get_pipeline_summary() -> dict:
             COUNT(CASE WHEN opportunity_type = 'upsell' THEN 1 END) AS upsell_count,
             COUNT(CASE WHEN opportunity_type = 'expansion' THEN 1 END) AS expansion_count,
             COUNT(CASE WHEN opportunity_type = 'renewal' THEN 1 END) AS renewal_count
-        FROM MART.DT_REVENUE_OPPORTUNITY_SCORE
+        FROM MART.REVENUE_OPPORTUNITY_SCORE
         WHERE opportunity_score >= 0.5
     """).collect()
     return row[0].as_dict() if row else {}
