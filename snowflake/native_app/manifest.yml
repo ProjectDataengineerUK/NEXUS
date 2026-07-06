@@ -11,8 +11,10 @@ artifacts:
   default_streamlit: CORE.NEXUS_UI
 
 privileges:
-  - EXECUTE TASK
-  - EXECUTE MANAGED TASK
+  - EXECUTE TASK:
+      description: "Necessário para rodar as tasks agendadas de churn scoring, briefing executivo e refresh do revenue score."
+  - EXECUTE MANAGED TASK:
+      description: "Necessário para o refresh automático das Dynamic Tables (MART/AI)."
 
 references:
   - name: customer_table
