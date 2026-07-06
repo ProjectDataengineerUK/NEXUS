@@ -2766,3 +2766,271 @@ ON t.setting_key = s.setting_key
 WHEN MATCHED THEN UPDATE SET setting_value = '3.0.0', updated_at = CURRENT_TIMESTAMP()
 WHEN NOT MATCHED THEN INSERT (setting_key, setting_value, description)
     VALUES (s.setting_key, s.setting_value, s.description);
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- SPRINT 4 — Conectores Adicionais (SAP, Oracle, HubSpot) + CDC via Streams
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Padrão: cada conector Airflow carrega dados brutos em STAGING.<FONTE>_<OBJETO>
+-- (org_id + raw_data VARIANT — org_id vem da Variable do DAG, não do payload,
+-- já que fontes como SAP/Oracle/HubSpot não têm o conceito de org_id do NEXUS).
+-- Um Stream captura as linhas novas e uma Task consome o Stream fazendo MERGE
+-- incremental em CORE.* — em vez de reprocessar a staging inteira a cada
+-- execução do DAG (ver DESIGN Decision 4: Dynamic Tables já fazem refresh
+-- incremental nativo entre CORE e MART, então o CDC explícito via Stream/Task
+-- fica só entre STAGING e CORE, onde realmente agrega valor).
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Staging tables — SAP (OData: Customers, Invoices, Orders)
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS STAGING.SAP_CUSTOMERS (
+    org_id    VARCHAR(50),
+    raw_data  VARIANT,
+    loaded_at TIMESTAMP_TZ DEFAULT CURRENT_TIMESTAMP()
+);
+CREATE TABLE IF NOT EXISTS STAGING.SAP_INVOICES (
+    org_id    VARCHAR(50),
+    raw_data  VARIANT,
+    loaded_at TIMESTAMP_TZ DEFAULT CURRENT_TIMESTAMP()
+);
+CREATE TABLE IF NOT EXISTS STAGING.SAP_ORDERS (
+    org_id    VARCHAR(50),
+    raw_data  VARIANT,
+    loaded_at TIMESTAMP_TZ DEFAULT CURRENT_TIMESTAMP()
+);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Staging tables — Oracle (Customers, Orders, Invoices)
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS STAGING.ORACLE_CUSTOMERS (
+    org_id    VARCHAR(50),
+    raw_data  VARIANT,
+    loaded_at TIMESTAMP_TZ DEFAULT CURRENT_TIMESTAMP()
+);
+CREATE TABLE IF NOT EXISTS STAGING.ORACLE_ORDERS (
+    org_id    VARCHAR(50),
+    raw_data  VARIANT,
+    loaded_at TIMESTAMP_TZ DEFAULT CURRENT_TIMESTAMP()
+);
+CREATE TABLE IF NOT EXISTS STAGING.ORACLE_INVOICES (
+    org_id    VARCHAR(50),
+    raw_data  VARIANT,
+    loaded_at TIMESTAMP_TZ DEFAULT CURRENT_TIMESTAMP()
+);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Staging tables — HubSpot (Contacts, Deals, Companies)
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS STAGING.HUBSPOT_CONTACTS (
+    org_id    VARCHAR(50),
+    raw_data  VARIANT,
+    loaded_at TIMESTAMP_TZ DEFAULT CURRENT_TIMESTAMP()
+);
+CREATE TABLE IF NOT EXISTS STAGING.HUBSPOT_DEALS (
+    org_id    VARCHAR(50),
+    raw_data  VARIANT,
+    loaded_at TIMESTAMP_TZ DEFAULT CURRENT_TIMESTAMP()
+);
+CREATE TABLE IF NOT EXISTS STAGING.HUBSPOT_COMPANIES (
+    org_id    VARCHAR(50),
+    raw_data  VARIANT,
+    loaded_at TIMESTAMP_TZ DEFAULT CURRENT_TIMESTAMP()
+);
+
+GRANT SELECT ON ALL TABLES IN SCHEMA STAGING TO APPLICATION ROLE NEXUS_ADMIN;
+GRANT INSERT ON ALL TABLES IN SCHEMA STAGING TO APPLICATION ROLE NEXUS_ADMIN;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Streams — capturam linhas novas em cada staging (append-only por natureza:
+-- cada load do DAG insere linhas raw, nunca edita in-place)
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE STREAM IF NOT EXISTS STAGING.SAP_CUSTOMERS_STREAM      ON TABLE STAGING.SAP_CUSTOMERS      APPEND_ONLY = TRUE;
+CREATE STREAM IF NOT EXISTS STAGING.SAP_INVOICES_STREAM       ON TABLE STAGING.SAP_INVOICES       APPEND_ONLY = TRUE;
+CREATE STREAM IF NOT EXISTS STAGING.SAP_ORDERS_STREAM         ON TABLE STAGING.SAP_ORDERS         APPEND_ONLY = TRUE;
+CREATE STREAM IF NOT EXISTS STAGING.ORACLE_CUSTOMERS_STREAM   ON TABLE STAGING.ORACLE_CUSTOMERS   APPEND_ONLY = TRUE;
+CREATE STREAM IF NOT EXISTS STAGING.ORACLE_ORDERS_STREAM      ON TABLE STAGING.ORACLE_ORDERS      APPEND_ONLY = TRUE;
+CREATE STREAM IF NOT EXISTS STAGING.ORACLE_INVOICES_STREAM    ON TABLE STAGING.ORACLE_INVOICES    APPEND_ONLY = TRUE;
+CREATE STREAM IF NOT EXISTS STAGING.HUBSPOT_CONTACTS_STREAM   ON TABLE STAGING.HUBSPOT_CONTACTS   APPEND_ONLY = TRUE;
+CREATE STREAM IF NOT EXISTS STAGING.HUBSPOT_DEALS_STREAM      ON TABLE STAGING.HUBSPOT_DEALS      APPEND_ONLY = TRUE;
+CREATE STREAM IF NOT EXISTS STAGING.HUBSPOT_COMPANIES_STREAM  ON TABLE STAGING.HUBSPOT_COMPANIES  APPEND_ONLY = TRUE;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Tasks de CDC — MERGE incremental de STAGING para CORE, só quando o Stream
+-- tem dados novos (SYSTEM$STREAM_HAS_DATA evita custo de warehouse ocioso).
+-- customer_id/transaction_id usam o external id da fonte prefixado (evita
+-- colisão entre IDs de fontes diferentes que reciclam o mesmo namespace).
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- SAP Customers -> CORE.CUSTOMERS
+CREATE OR REPLACE TASK CORE.TASK_MERGE_SAP_CUSTOMERS
+    WAREHOUSE = NEXUS_COMPUTE_WH
+    SCHEDULE  = '15 MINUTE'
+    WHEN SYSTEM$STREAM_HAS_DATA('STAGING.SAP_CUSTOMERS_STREAM')
+AS
+MERGE INTO CORE.CUSTOMERS tgt
+USING (
+    SELECT
+        'SAP-' || raw_data:CustomerID::VARCHAR AS customer_id,
+        org_id,
+        raw_data:Name::VARCHAR                 AS name,
+        raw_data:Email::VARCHAR                AS email
+    FROM STAGING.SAP_CUSTOMERS_STREAM
+    WHERE raw_data:CustomerID IS NOT NULL
+) src
+ON tgt.customer_id = src.customer_id
+WHEN MATCHED THEN UPDATE SET
+    name = src.name, email = src.email, updated_at = CURRENT_TIMESTAMP()
+WHEN NOT MATCHED THEN INSERT (customer_id, org_id, name, email)
+    VALUES (src.customer_id, src.org_id, src.name, src.email);
+
+-- SAP Invoices -> CORE.TRANSACTIONS
+CREATE OR REPLACE TASK CORE.TASK_MERGE_SAP_INVOICES
+    WAREHOUSE = NEXUS_COMPUTE_WH
+    SCHEDULE  = '15 MINUTE'
+    WHEN SYSTEM$STREAM_HAS_DATA('STAGING.SAP_INVOICES_STREAM')
+AS
+MERGE INTO CORE.TRANSACTIONS tgt
+USING (
+    SELECT
+        'SAP-' || raw_data:InvoiceID::VARCHAR    AS transaction_id,
+        org_id,
+        'SAP-' || raw_data:CustomerID::VARCHAR   AS customer_id,
+        'invoice'                                AS transaction_type,
+        raw_data:Amount::DECIMAL(18,2)           AS amount,
+        raw_data:Currency::VARCHAR                AS currency,
+        raw_data:InvoiceDate::DATE                AS transaction_date
+    FROM STAGING.SAP_INVOICES_STREAM
+    WHERE raw_data:InvoiceID IS NOT NULL
+) src
+ON tgt.transaction_id = src.transaction_id
+WHEN MATCHED THEN UPDATE SET
+    amount = src.amount, status = 'completed'
+WHEN NOT MATCHED THEN INSERT
+    (transaction_id, org_id, customer_id, transaction_type, amount, currency, transaction_date)
+    VALUES (src.transaction_id, src.org_id, src.customer_id, src.transaction_type,
+            src.amount, src.currency, src.transaction_date);
+
+-- Oracle Customers -> CORE.CUSTOMERS
+CREATE OR REPLACE TASK CORE.TASK_MERGE_ORACLE_CUSTOMERS
+    WAREHOUSE = NEXUS_COMPUTE_WH
+    SCHEDULE  = '15 MINUTE'
+    WHEN SYSTEM$STREAM_HAS_DATA('STAGING.ORACLE_CUSTOMERS_STREAM')
+AS
+MERGE INTO CORE.CUSTOMERS tgt
+USING (
+    SELECT
+        'ORCL-' || raw_data:CUSTOMER_ID::VARCHAR AS customer_id,
+        org_id,
+        raw_data:NAME::VARCHAR                   AS name,
+        raw_data:EMAIL::VARCHAR                   AS email
+    FROM STAGING.ORACLE_CUSTOMERS_STREAM
+    WHERE raw_data:CUSTOMER_ID IS NOT NULL
+) src
+ON tgt.customer_id = src.customer_id
+WHEN MATCHED THEN UPDATE SET
+    name = src.name, email = src.email, updated_at = CURRENT_TIMESTAMP()
+WHEN NOT MATCHED THEN INSERT (customer_id, org_id, name, email)
+    VALUES (src.customer_id, src.org_id, src.name, src.email);
+
+-- Oracle Orders -> CORE.TRANSACTIONS
+CREATE OR REPLACE TASK CORE.TASK_MERGE_ORACLE_ORDERS
+    WAREHOUSE = NEXUS_COMPUTE_WH
+    SCHEDULE  = '15 MINUTE'
+    WHEN SYSTEM$STREAM_HAS_DATA('STAGING.ORACLE_ORDERS_STREAM')
+AS
+MERGE INTO CORE.TRANSACTIONS tgt
+USING (
+    SELECT
+        'ORCL-' || raw_data:ORDER_ID::VARCHAR    AS transaction_id,
+        org_id,
+        'ORCL-' || raw_data:CUSTOMER_ID::VARCHAR AS customer_id,
+        'order'                                   AS transaction_type,
+        raw_data:AMOUNT::DECIMAL(18,2)            AS amount,
+        raw_data:ORDER_DATE::DATE                 AS transaction_date
+    FROM STAGING.ORACLE_ORDERS_STREAM
+    WHERE raw_data:ORDER_ID IS NOT NULL
+) src
+ON tgt.transaction_id = src.transaction_id
+WHEN MATCHED THEN UPDATE SET
+    amount = src.amount, status = 'completed'
+WHEN NOT MATCHED THEN INSERT
+    (transaction_id, org_id, customer_id, transaction_type, amount, transaction_date)
+    VALUES (src.transaction_id, src.org_id, src.customer_id, src.transaction_type,
+            src.amount, src.transaction_date);
+
+-- HubSpot Contacts -> CORE.CUSTOMERS
+CREATE OR REPLACE TASK CORE.TASK_MERGE_HUBSPOT_CONTACTS
+    WAREHOUSE = NEXUS_COMPUTE_WH
+    SCHEDULE  = '15 MINUTE'
+    WHEN SYSTEM$STREAM_HAS_DATA('STAGING.HUBSPOT_CONTACTS_STREAM')
+AS
+MERGE INTO CORE.CUSTOMERS tgt
+USING (
+    SELECT
+        'HS-' || raw_data:id::VARCHAR AS customer_id,
+        org_id,
+        TRIM(
+            COALESCE(raw_data:properties:firstname::VARCHAR, '') || ' ' ||
+            COALESCE(raw_data:properties:lastname::VARCHAR, '')
+        )                                       AS name,
+        raw_data:properties:email::VARCHAR      AS email
+    FROM STAGING.HUBSPOT_CONTACTS_STREAM
+    WHERE raw_data:id IS NOT NULL
+) src
+ON tgt.customer_id = src.customer_id
+WHEN MATCHED THEN UPDATE SET
+    name = src.name, email = src.email, updated_at = CURRENT_TIMESTAMP()
+WHEN NOT MATCHED THEN INSERT (customer_id, org_id, name, email)
+    VALUES (src.customer_id, src.org_id, src.name, src.email);
+
+-- HubSpot Deals -> CORE.TRANSACTIONS
+CREATE OR REPLACE TASK CORE.TASK_MERGE_HUBSPOT_DEALS
+    WAREHOUSE = NEXUS_COMPUTE_WH
+    SCHEDULE  = '15 MINUTE'
+    WHEN SYSTEM$STREAM_HAS_DATA('STAGING.HUBSPOT_DEALS_STREAM')
+AS
+MERGE INTO CORE.TRANSACTIONS tgt
+USING (
+    SELECT
+        'HS-' || raw_data:id::VARCHAR                       AS transaction_id,
+        org_id,
+        'HS-' || raw_data:properties:associated_contact_id::VARCHAR AS customer_id,
+        'deal'                                                AS transaction_type,
+        raw_data:properties:amount::DECIMAL(18,2)            AS amount,
+        raw_data:properties:closedate::DATE                   AS transaction_date
+    FROM STAGING.HUBSPOT_DEALS_STREAM
+    WHERE raw_data:id IS NOT NULL
+) src
+ON tgt.transaction_id = src.transaction_id
+WHEN MATCHED THEN UPDATE SET
+    amount = src.amount, status = 'completed'
+WHEN NOT MATCHED THEN INSERT
+    (transaction_id, org_id, customer_id, transaction_type, amount, transaction_date)
+    VALUES (src.transaction_id, src.org_id, src.customer_id, src.transaction_type,
+            src.amount, src.transaction_date);
+
+-- Resume de todas as Tasks de CDC — tolerante, mesmo padrão do Sprint 3:
+-- EXECUTE TASK só é concedido ao APPLICATION depois que a versão atual
+-- (que declara o privilégio no manifest.yml) já foi instalada.
+EXECUTE IMMEDIATE $$
+BEGIN
+    ALTER TASK CORE.TASK_MERGE_SAP_CUSTOMERS      RESUME;
+    ALTER TASK CORE.TASK_MERGE_SAP_INVOICES       RESUME;
+    ALTER TASK CORE.TASK_MERGE_ORACLE_CUSTOMERS   RESUME;
+    ALTER TASK CORE.TASK_MERGE_ORACLE_ORDERS      RESUME;
+    ALTER TASK CORE.TASK_MERGE_HUBSPOT_CONTACTS   RESUME;
+    ALTER TASK CORE.TASK_MERGE_HUBSPOT_DEALS      RESUME;
+    RETURN 'OK';
+EXCEPTION
+    WHEN OTHER THEN
+        RETURN 'SKIPPED: ' || SQLERRM;
+END;
+$$;
+
+-- Versão v4.0.0
+MERGE INTO CONFIG.APP_SETTINGS t
+USING (SELECT 'app_version' AS setting_key, '4.0.0' AS setting_value,
+              'NEXUS AI DataOps v4.0 — SAP/Oracle/HubSpot Connectors & CDC via Streams' AS description) s
+ON t.setting_key = s.setting_key
+WHEN MATCHED THEN UPDATE SET setting_value = '4.0.0', updated_at = CURRENT_TIMESTAMP()
+WHEN NOT MATCHED THEN INSERT (setting_key, setting_value, description)
+    VALUES (s.setting_key, s.setting_value, s.description);

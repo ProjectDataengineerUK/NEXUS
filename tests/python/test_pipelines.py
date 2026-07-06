@@ -31,6 +31,7 @@ def mock_airflow_deps():
         "airflow.providers.snowflake.hooks":                MagicMock(),
         "airflow.providers.snowflake.hooks.snowflake":      MagicMock(),
         "requests":                                         MagicMock(),
+        "oracledb":                                         MagicMock(),
     }
     with patch.dict(sys.modules, mocks):
         yield mocks
@@ -109,6 +110,87 @@ class TestStripeDAG:
     def test_dag_uses_secret_key_variable(self):
         source = (DAGS_DIR / "stripe_ingest_dag.py").read_text()
         assert "STRIPE_SECRET_KEY" in source
+
+
+class TestSAPDAG:
+    def test_dag_file_exists(self):
+        assert (DAGS_DIR / "sap_ingest_dag.py").exists()
+
+    def test_dag_covers_entities(self):
+        source = (DAGS_DIR / "sap_ingest_dag.py").read_text()
+        for entity in ["customers", "invoices", "orders"]:
+            assert entity in source, f"Entity {entity!r} not found in SAP DAG"
+
+    def test_dag_uses_odata_variables(self):
+        source = (DAGS_DIR / "sap_ingest_dag.py").read_text()
+        assert "SAP_ODATA_BASE_URL" in source
+        assert "SAP_USER" in source
+        assert "SAP_PASSWORD" in source
+
+    def test_dag_loads_to_staging_only(self):
+        source = (DAGS_DIR / "sap_ingest_dag.py").read_text()
+        assert "STAGING.SAP_" in source
+        assert "MERGE INTO" not in source, "MERGE deve ser feito pela Task de CDC no Snowflake, não no DAG"
+
+    def test_dag_uses_taskflow_api(self):
+        source = (DAGS_DIR / "sap_ingest_dag.py").read_text()
+        assert "@task" in source
+        assert "@dag" in source
+
+    def test_dag_has_retry_config(self):
+        source = (DAGS_DIR / "sap_ingest_dag.py").read_text()
+        assert "retries" in source
+        assert "retry_delay" in source
+
+
+class TestOracleDAG:
+    def test_dag_file_exists(self):
+        assert (DAGS_DIR / "oracle_ingest_dag.py").exists()
+
+    def test_dag_covers_tables(self):
+        source = (DAGS_DIR / "oracle_ingest_dag.py").read_text()
+        for table in ["customers", "orders", "invoices"]:
+            assert table in source, f"Table {table!r} not found in Oracle DAG"
+
+    def test_dag_uses_oracledb_thin_mode(self):
+        source = (DAGS_DIR / "oracle_ingest_dag.py").read_text()
+        assert "import oracledb" in source
+        assert "oracledb.connect" in source
+
+    def test_dag_uses_connection_variables(self):
+        source = (DAGS_DIR / "oracle_ingest_dag.py").read_text()
+        assert "ORACLE_DSN" in source
+        assert "ORACLE_USER" in source
+        assert "ORACLE_PASSWORD" in source
+
+    def test_dag_loads_to_staging_only(self):
+        source = (DAGS_DIR / "oracle_ingest_dag.py").read_text()
+        assert "STAGING.ORACLE_" in source
+        assert "MERGE INTO" not in source, "MERGE deve ser feito pela Task de CDC no Snowflake, não no DAG"
+
+
+class TestHubSpotDAG:
+    def test_dag_file_exists(self):
+        assert (DAGS_DIR / "hubspot_ingest_dag.py").exists()
+
+    def test_dag_covers_objects(self):
+        source = (DAGS_DIR / "hubspot_ingest_dag.py").read_text()
+        for obj in ["contacts", "deals", "companies"]:
+            assert obj in source, f"Object {obj!r} not found in HubSpot DAG"
+
+    def test_dag_uses_access_token_variable(self):
+        source = (DAGS_DIR / "hubspot_ingest_dag.py").read_text()
+        assert "HUBSPOT_ACCESS_TOKEN" in source
+
+    def test_dag_uses_v3_pagination(self):
+        source = (DAGS_DIR / "hubspot_ingest_dag.py").read_text()
+        assert "crm/v3/objects" in source
+        assert "after" in source
+
+    def test_dag_loads_to_staging_only(self):
+        source = (DAGS_DIR / "hubspot_ingest_dag.py").read_text()
+        assert "STAGING.HUBSPOT_" in source
+        assert "MERGE INTO" not in source, "MERGE deve ser feito pela Task de CDC no Snowflake, não no DAG"
 
 
 class TestAirflowConnection:
