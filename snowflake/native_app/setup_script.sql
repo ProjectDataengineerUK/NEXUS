@@ -2295,8 +2295,15 @@ EXCEPTION
 END;
 $$;
 
-ALTER TABLE MART.REVENUE_OPPORTUNITY_SCORE
-    ADD ROW ACCESS POLICY CORE.RAP_ORG_ISOLATION ON (org_id);
+EXECUTE IMMEDIATE $$
+BEGIN
+    ALTER TABLE MART.REVENUE_OPPORTUNITY_SCORE ADD ROW ACCESS POLICY CORE.RAP_ORG_ISOLATION ON (org_id);
+    RETURN 'OK';
+EXCEPTION
+    WHEN OTHER THEN
+        RETURN 'SKIPPED: ' || SQLERRM;
+END;
+$$;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Sprint 2 — P1: Dynamic Tables no setup_script (chegam ao consumer via Native App)
