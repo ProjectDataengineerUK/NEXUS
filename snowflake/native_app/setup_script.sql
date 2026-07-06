@@ -15,6 +15,29 @@ CREATE SCHEMA IF NOT EXISTS GOVERNANCE;
 CREATE SCHEMA IF NOT EXISTS CONFIG;
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- Warehouse de compute — as Dynamic Tables e Tasks abaixo requerem
+-- NEXUS_COMPUTE_WH. Cria automaticamente se o consumer ainda não tiver um
+-- (requer o privilégio CREATE WAREHOUSE, solicitado no manifest.yml);
+-- tolerante a falha caso o account não permita ou já exista um gerenciado
+-- externamente com config diferente.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+EXECUTE IMMEDIATE $$
+BEGIN
+    CREATE WAREHOUSE IF NOT EXISTS NEXUS_COMPUTE_WH
+        WAREHOUSE_SIZE      = 'XSMALL'
+        AUTO_SUSPEND        = 120
+        AUTO_RESUME         = TRUE
+        INITIALLY_SUSPENDED = TRUE
+        COMMENT             = 'Warehouse de compute do NEXUS AI DataOps — Dynamic Tables, Tasks e Cortex Agents';
+    RETURN 'OK';
+EXCEPTION
+    WHEN OTHER THEN
+        RETURN 'SKIPPED: ' || SQLERRM;
+END;
+$$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- Roles de aplicação (Application Roles — Native App Framework)
 -- ─────────────────────────────────────────────────────────────────────────────
 

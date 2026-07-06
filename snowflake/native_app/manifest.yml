@@ -15,6 +15,8 @@ privileges:
       description: "Necessário para rodar as tasks agendadas de churn scoring, briefing executivo e refresh do revenue score."
   - EXECUTE MANAGED TASK:
       description: "Necessário para o refresh automático das Dynamic Tables (MART/AI)."
+  - CREATE WAREHOUSE:
+      description: "Necessário para criar o warehouse de compute do app (NEXUS_COMPUTE_WH) caso o consumer ainda não tenha um provisionado."
 
 references:
   - customer_table:
