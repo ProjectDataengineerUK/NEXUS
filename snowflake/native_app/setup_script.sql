@@ -2131,9 +2131,24 @@ AS
           AND r.scored_at   > DATEADD('hour', -6, CURRENT_TIMESTAMP())
     );
 
-ALTER TASK CORE.TASK_RUN_CHURN_PIPELINE    RESUME;
-ALTER TASK CORE.TASK_EXECUTIVE_BRIEFING    RESUME;
-ALTER TASK MART.TASK_REFRESH_REVENUE_SCORE RESUME;
+-- Tolerante: EXECUTE TASK só pode ser concedido à application depois que a
+-- versão atual (que declara o privilégio no manifest.yml) já estiver
+-- instalada — na 1a instalação/upgrade que introduz o privilégio, o consumer
+-- ainda não teve chance de concedê-lo. RESUME falharia com "EXECUTE TASK
+-- privilege must be granted to owner role" e derrubaria a instalação
+-- inteira. Uma vez concedido (ver step de CI), upgrades seguintes resumem
+-- normalmente.
+EXECUTE IMMEDIATE $$
+BEGIN
+    ALTER TASK CORE.TASK_RUN_CHURN_PIPELINE    RESUME;
+    ALTER TASK CORE.TASK_EXECUTIVE_BRIEFING    RESUME;
+    ALTER TASK MART.TASK_REFRESH_REVENUE_SCORE RESUME;
+    RETURN 'OK';
+EXCEPTION
+    WHEN OTHER THEN
+        RETURN 'SKIPPED: ' || SQLERRM;
+END;
+$$;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Sprint 2 — P1: Tabelas canônicas ausentes (CONTEXT.md seção 34)
