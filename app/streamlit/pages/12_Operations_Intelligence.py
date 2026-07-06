@@ -16,7 +16,7 @@ def get_ticket_summary() -> dict:
             COUNT(*) AS total_open,
             COUNT(CASE WHEN priority = 'urgent' THEN 1 END) AS urgent_count,
             COUNT(CASE WHEN priority = 'high'   THEN 1 END) AS high_count,
-            ROUND(AVG(DATEDIFF('hour', created_at, COALESCE(updated_at, CURRENT_TIMESTAMP()))), 1) AS avg_age_hours
+            ROUND(AVG(DATEDIFF('hour', created_at, CURRENT_TIMESTAMP())), 1) AS avg_age_hours
         FROM CORE.TICKETS
         WHERE status = 'open'
     """).collect()
