@@ -613,6 +613,16 @@ jobs:
               print("Granted USAGE on NEXUS_COMPUTE_WH to NEXUS_AI_DATAOPS_TEST.")
           except Exception as e:
               print(f"Grant skipped (app may not exist yet): {e}")
+
+          try:
+              # Idem para EXECUTE TASK: declarar em manifest.yml privileges: só
+              # documenta a intenção (manifest_version 1 não concede automaticamente)
+              # — sem isso, ALTER TASK ... RESUME falha com "EXECUTE TASK privilege
+              # must be granted to owner role".
+              cs.execute("GRANT EXECUTE TASK ON ACCOUNT TO APPLICATION NEXUS_AI_DATAOPS_TEST")
+              print("Granted EXECUTE TASK to NEXUS_AI_DATAOPS_TEST.")
+          except Exception as e:
+              print(f"Grant skipped (app may not exist yet): {e}")
           conn.close()
           print("NEXUS_COMPUTE_WH ready.")
           EOF
