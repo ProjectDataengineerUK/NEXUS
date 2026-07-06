@@ -3479,23 +3479,20 @@ USING (
 WHEN NOT MATCHED THEN INSERT (memory_id, org_id, user_name, agent_name, session_id, memory_key, memory_value)
     VALUES (s.memory_id, s.org_id, s.user_name, s.agent_name, s.session_id, s.memory_key, s.memory_value);
 
--- DIAGNÓSTICO TEMPORÁRIO — investigar por que MART.DT_EXECUTIVE_KPIS/
--- DT_CUSTOMER_HEALTH/AI.DT_SUPPORT_INTELLIGENCE fazem refresh com sucesso mas
--- sempre ficam com 0 linhas mesmo após o bypass CURRENT_USER() = 'SYSTEM' na
--- RAP. Captura o contexto real de execução durante o próprio refresh em
--- background, para confirmar empiricamente em vez de seguir só pela
--- documentação. Remover depois de diagnosticado.
-CREATE OR REPLACE DYNAMIC TABLE CORE.DT_DEBUG_RAP_CONTEXT
-    TARGET_LAG = '1 minute'
-    WAREHOUSE  = NEXUS_COMPUTE_WH
-    INITIALIZE = ON_CREATE
-AS
-SELECT
-    CURRENT_USER()                                    AS debug_current_user,
-    CURRENT_ROLE()                                     AS debug_current_role,
-    IS_APPLICATION_ROLE_IN_SESSION('NEXUS_ADMIN')       AS debug_is_nexus_admin,
-    (SELECT COUNT(*) FROM CORE.CUSTOMERS)               AS debug_customers_visible,
-    CURRENT_TIMESTAMP()                                 AS debug_captured_at;
-
-GRANT SELECT ON DYNAMIC TABLE CORE.DT_DEBUG_RAP_CONTEXT TO APPLICATION ROLE NEXUS_ADMIN;
+-- DIAGNÓSTICO TEMPORÁRIO (removido) — confirmou empiricamente que o refresh
+-- em background de Dynamic Tables roda como CURRENT_USER() = 'SYSTEM' e que
+-- o bypass adicionado à RAP_ORG_ISOLATION funciona (208 clientes visíveis
+-- durante o refresh). O problema real era só timing: MART.DT_CUSTOMER_HEALTH/
+-- DT_EXECUTIVE_KPIS/AI.DT_SUPPORT_INTELLIGENCE precisavam de mais um ciclo de
+-- refresh após o fix para propagar pela cadeia de dependências. DROP explícito
+-- (não só remover o CREATE) para limpar instalações que já tinham a tabela.
+EXECUTE IMMEDIATE $$
+BEGIN
+    DROP DYNAMIC TABLE IF EXISTS CORE.DT_DEBUG_RAP_CONTEXT;
+    RETURN 'OK';
+EXCEPTION
+    WHEN OTHER THEN
+        RETURN 'SKIPPED: ' || SQLERRM;
+END;
+$$;
 
