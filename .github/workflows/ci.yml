@@ -429,6 +429,15 @@ jobs:
 
       - name: Executar testes SQL (assertions)
         if: ${{ github.event.inputs.skip_sql != 'true' }}
+        # TODO: não bloqueante por ora. Estes arquivos nunca tinham rodado contra
+        # Snowflake de verdade (a CI só checava se existiam) — têm bugs próprios
+        # a corrigir antes de virarem gate: test_dynamic_tables.sql e
+        # test_references.sql referenciam INFORMATION_SCHEMA.DYNAMIC_TABLES e
+        # INFORMATION_SCHEMA.TASKS, que não existem no Snowflake (precisa SHOW
+        # DYNAMIC TABLES / SHOW TASKS ou ACCOUNT_USAGE); test_core_tables.sql e
+        # test_security.sql têm erros de sintaxe nos argumentos do CALL
+        # CORE.ASSERT(...) a investigar.
+        continue-on-error: true
         run: |
           python - <<'EOF'
           import snowflake.connector, os, glob, sys
