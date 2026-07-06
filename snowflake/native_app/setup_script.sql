@@ -3493,7 +3493,6 @@ AS
 SELECT
     CURRENT_USER()                                    AS debug_current_user,
     CURRENT_ROLE()                                     AS debug_current_role,
-    CURRENT_AVAILABLE_ROLES()                           AS debug_available_roles,
     IS_APPLICATION_ROLE_IN_SESSION('NEXUS_ADMIN')       AS debug_is_nexus_admin,
     (SELECT COUNT(*) FROM CORE.CUSTOMERS)               AS debug_customers_visible,
     CURRENT_TIMESTAMP()                                 AS debug_captured_at;
