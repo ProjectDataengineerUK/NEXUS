@@ -1003,24 +1003,36 @@ GROUP BY org_id;
 -- Semantic search over document chunks (used by AI Chat + Document Intelligence)
 -- ─────────────────────────────────────────────────────────────────────────────
 
-CREATE OR REPLACE CORTEX SEARCH SERVICE AI.DOC_SEARCH
-    ON chunk_text
-    ATTRIBUTES org_id, document_id, document_name, document_type
-    WAREHOUSE = NEXUS_COMPUTE_WH
-    TARGET_LAG = '1 hour'
-    COMMENT = 'Semantic search sobre chunks de documentos NEXUS — contratos, relatórios, manuais'
-AS (
-    SELECT
-        chunk_id,
-        org_id,
-        document_id,
-        document_name,
-        document_type,
-        chunk_text,
-        chunk_index,
-        COALESCE(section_title, '') AS section_title
-    FROM AI.DOCUMENT_CHUNKS
-);
+-- Tolerante a contas/roles sem acesso à função de embedding do Cortex Search
+-- (erro observado: "Current role does not have access to Cortex embedding
+-- function snowflake.cortex.embed_text_768"), mesmo tratamento já dado pelo
+-- IGNORABLE list do path de deploy direto ("cortex search service").
+EXECUTE IMMEDIATE $$
+BEGIN
+    CREATE OR REPLACE CORTEX SEARCH SERVICE AI.DOC_SEARCH
+        ON chunk_text
+        ATTRIBUTES org_id, document_id, document_name, document_type
+        WAREHOUSE = NEXUS_COMPUTE_WH
+        TARGET_LAG = '1 hour'
+        COMMENT = 'Semantic search sobre chunks de documentos NEXUS — contratos, relatórios, manuais'
+    AS (
+        SELECT
+            chunk_id,
+            org_id,
+            document_id,
+            document_name,
+            document_type,
+            chunk_text,
+            chunk_index,
+            COALESCE(section_title, '') AS section_title
+        FROM AI.DOCUMENT_CHUNKS
+    );
+    RETURN 'OK';
+EXCEPTION
+    WHEN OTHER THEN
+        RETURN 'SKIPPED: ' || SQLERRM;
+END;
+$$;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Cortex Search Service — AI.CONTRACT_SEARCH
@@ -1052,16 +1064,24 @@ LEFT JOIN CORE.CUSTOMERS c ON d.entity_id = c.customer_id AND d.org_id = c.org_i
 WHERE d.document_type IN ('contract', 'sla', 'amendment', 'addendum')
   AND ch.chunk_text IS NOT NULL;
 
-CREATE OR REPLACE CORTEX SEARCH SERVICE AI.CONTRACT_SEARCH
-    ON chunk_text
-    ATTRIBUTES
-        document_id, contract_name, customer_name, customer_id, org_id,
-        document_type, section_title, contract_type, contract_value_usd,
-        start_date, end_date, auto_renewal, governing_law, contract_summary
-    WAREHOUSE = NEXUS_COMPUTE_WH
-    TARGET_LAG = '1 hour'
-    COMMENT = 'Semantic search sobre contratos e SLAs — Contract Intelligence NEXUS'
-AS (SELECT * FROM AI.CONTRACT_CHUNKS_V);
+EXECUTE IMMEDIATE $$
+BEGIN
+    CREATE OR REPLACE CORTEX SEARCH SERVICE AI.CONTRACT_SEARCH
+        ON chunk_text
+        ATTRIBUTES
+            document_id, contract_name, customer_name, customer_id, org_id,
+            document_type, section_title, contract_type, contract_value_usd,
+            start_date, end_date, auto_renewal, governing_law, contract_summary
+        WAREHOUSE = NEXUS_COMPUTE_WH
+        TARGET_LAG = '1 hour'
+        COMMENT = 'Semantic search sobre contratos e SLAs — Contract Intelligence NEXUS'
+    AS (SELECT * FROM AI.CONTRACT_CHUNKS_V);
+    RETURN 'OK';
+EXCEPTION
+    WHEN OTHER THEN
+        RETURN 'SKIPPED: ' || SQLERRM;
+END;
+$$;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Grants para Application Roles
@@ -1124,12 +1144,30 @@ GRANT ALL    ON TABLE  CORE.TRANSACTIONS           TO APPLICATION ROLE NEXUS_ADM
 GRANT ALL    ON TABLE  CORE.APPROVAL_QUEUE          TO APPLICATION ROLE NEXUS_ADMIN;
 GRANT ALL    ON TABLE  AI.RECOMMENDATIONS           TO APPLICATION ROLE NEXUS_ANALYST;
 
--- Cortex Search Services
-GRANT USAGE ON CORTEX SEARCH SERVICE AI.DOC_SEARCH      TO APPLICATION ROLE NEXUS_ADMIN;
-GRANT USAGE ON CORTEX SEARCH SERVICE AI.DOC_SEARCH      TO APPLICATION ROLE NEXUS_ANALYST;
-GRANT USAGE ON CORTEX SEARCH SERVICE AI.DOC_SEARCH      TO APPLICATION ROLE NEXUS_VIEWER;
-GRANT USAGE ON CORTEX SEARCH SERVICE AI.CONTRACT_SEARCH TO APPLICATION ROLE NEXUS_ADMIN;
-GRANT USAGE ON CORTEX SEARCH SERVICE AI.CONTRACT_SEARCH TO APPLICATION ROLE NEXUS_ANALYST;
+-- Cortex Search Services — tolerante caso a criação tenha sido pulada acima
+-- (conta/role sem acesso à função de embedding do Cortex Search)
+EXECUTE IMMEDIATE $$
+BEGIN
+    GRANT USAGE ON CORTEX SEARCH SERVICE AI.DOC_SEARCH      TO APPLICATION ROLE NEXUS_ADMIN;
+    GRANT USAGE ON CORTEX SEARCH SERVICE AI.DOC_SEARCH      TO APPLICATION ROLE NEXUS_ANALYST;
+    GRANT USAGE ON CORTEX SEARCH SERVICE AI.DOC_SEARCH      TO APPLICATION ROLE NEXUS_VIEWER;
+    RETURN 'OK';
+EXCEPTION
+    WHEN OTHER THEN
+        RETURN 'SKIPPED: ' || SQLERRM;
+END;
+$$;
+
+EXECUTE IMMEDIATE $$
+BEGIN
+    GRANT USAGE ON CORTEX SEARCH SERVICE AI.CONTRACT_SEARCH TO APPLICATION ROLE NEXUS_ADMIN;
+    GRANT USAGE ON CORTEX SEARCH SERVICE AI.CONTRACT_SEARCH TO APPLICATION ROLE NEXUS_ANALYST;
+    RETURN 'OK';
+EXCEPTION
+    WHEN OTHER THEN
+        RETURN 'SKIPPED: ' || SQLERRM;
+END;
+$$;
 GRANT SELECT ON VIEW AI.CONTRACT_CHUNKS_V               TO APPLICATION ROLE NEXUS_VIEWER;
 GRANT SELECT ON VIEW AI.CONTRACT_CHUNKS_V               TO APPLICATION ROLE NEXUS_ANALYST;
 GRANT SELECT ON VIEW AI.CONTRACT_CHUNKS_V               TO APPLICATION ROLE NEXUS_ADMIN;
@@ -1948,16 +1986,24 @@ USING (
 WHEN NOT MATCHED THEN INSERT (kb_name, source_url, title) VALUES (s.kb_name, s.source_url, s.title);
 
 -- Cortex Search Service unificado para todas as KBs (filtro por kb_name em queries)
-CREATE OR REPLACE CORTEX SEARCH SERVICE KBS.KB_SEARCH_SERVICE
-    ON content
-    ATTRIBUTES kb_name, doc_type, source_url, title
-    WAREHOUSE  = NEXUS_COMPUTE_WH
-    TARGET_LAG = '7 days'
-AS (
-    SELECT content, kb_name, doc_type, source_url, title, doc_id
-    FROM KBS.DOCUMENTS
-    WHERE is_active = TRUE
-);
+EXECUTE IMMEDIATE $$
+BEGIN
+    CREATE OR REPLACE CORTEX SEARCH SERVICE KBS.KB_SEARCH_SERVICE
+        ON content
+        ATTRIBUTES kb_name, doc_type, source_url, title
+        WAREHOUSE  = NEXUS_COMPUTE_WH
+        TARGET_LAG = '7 days'
+    AS (
+        SELECT content, kb_name, doc_type, source_url, title, doc_id
+        FROM KBS.DOCUMENTS
+        WHERE is_active = TRUE
+    );
+    RETURN 'OK';
+EXCEPTION
+    WHEN OTHER THEN
+        RETURN 'SKIPPED: ' || SQLERRM;
+END;
+$$;
 
 GRANT USAGE ON SCHEMA KBS TO APPLICATION ROLE NEXUS_VIEWER;
 GRANT SELECT ON ALL TABLES IN SCHEMA KBS TO APPLICATION ROLE NEXUS_ANALYST;
