@@ -66,14 +66,14 @@ summary = get_pipeline_summary()
 
 col1, col2, col3, col4 = st.columns(4)
 with col1:
-    st.metric("Pipeline Total", f"${summary.get('TOTAL_PIPELINE', 0):,.0f}")
+    st.metric("Pipeline Total", f"${(summary.get('TOTAL_PIPELINE') or 0):,.0f}")
 with col2:
-    st.metric("Oportunidades", summary.get("TOTAL_OPPORTUNITIES", 0))
+    st.metric("Oportunidades", summary.get("TOTAL_OPPORTUNITIES") or 0)
 with col3:
-    score = summary.get("AVG_SCORE", 0)
+    score = summary.get("AVG_SCORE") or 0
     st.metric("Score Médio", f"{score:.0%}")
 with col4:
-    renewal = summary.get("RENEWAL_COUNT", 0)
+    renewal = summary.get("RENEWAL_COUNT") or 0
     st.metric("Renovações Pendentes", renewal)
 
 st.divider()

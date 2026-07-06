@@ -77,14 +77,14 @@ summary = get_ticket_summary()
 
 col1, col2, col3, col4 = st.columns(4)
 with col1:
-    st.metric("Tickets Abertos", summary.get("TOTAL_OPEN", 0))
+    st.metric("Tickets Abertos", summary.get("TOTAL_OPEN") or 0)
 with col2:
-    urgent = summary.get("URGENT_COUNT", 0)
+    urgent = summary.get("URGENT_COUNT") or 0
     st.metric("Urgente", urgent, delta=None if urgent == 0 else f"{urgent} críticos", delta_color="inverse")
 with col3:
-    st.metric("Prioridade Alta", summary.get("HIGH_COUNT", 0))
+    st.metric("Prioridade Alta", summary.get("HIGH_COUNT") or 0)
 with col4:
-    age = summary.get("AVG_AGE_HOURS", 0)
+    age = summary.get("AVG_AGE_HOURS") or 0
     st.metric("Idade Média (h)", f"{age:.0f}h")
 
 st.divider()
