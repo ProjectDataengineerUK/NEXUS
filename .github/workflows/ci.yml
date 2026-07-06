@@ -596,13 +596,23 @@ jobs:
               password=os.environ["SNOWFLAKE_PASSWORD"],
               role="ACCOUNTADMIN",
           )
-          conn.cursor().execute("""
+          cs = conn.cursor()
+          cs.execute("""
               CREATE WAREHOUSE IF NOT EXISTS NEXUS_COMPUTE_WH
                   WAREHOUSE_SIZE = 'XSMALL'
                   AUTO_SUSPEND = 120
                   AUTO_RESUME = TRUE
                   INITIALLY_SUSPENDED = TRUE
           """)
+          try:
+              # Necessário na 1a instalação/upgrade: o setup script referencia o
+              # warehouse por nome, mas o objeto APPLICATION só enxerga o que
+              # lhe foi concedido explicitamente. Falha silenciosamente se o
+              # app ainda não existir (1a execução, antes do primeiro install).
+              cs.execute("GRANT USAGE ON WAREHOUSE NEXUS_COMPUTE_WH TO APPLICATION NEXUS_AI_DATAOPS_TEST")
+              print("Granted USAGE on NEXUS_COMPUTE_WH to NEXUS_AI_DATAOPS_TEST.")
+          except Exception as e:
+              print(f"Grant skipped (app may not exist yet): {e}")
           conn.close()
           print("NEXUS_COMPUTE_WH ready.")
           EOF
