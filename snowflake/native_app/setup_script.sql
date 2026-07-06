@@ -1509,37 +1509,17 @@ ALTER TABLE AUDIT.PROMPT_LOG MODIFY COLUMN prompt_text SET MASKING POLICY GOVERN
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Sprint 2 — P0: External Access Integration (APIs externas via Native App)
--- ─────────────────────────────────────────────────────────────────────────────
-
--- Envolvido em bloco de scripting com tratamento de erro porque External Access
--- Integration não é suportado em contas trial (erro 509009) — sem isso, a
--- instalação inteira do Native App falharia na validação do setup script.
-EXECUTE IMMEDIATE $$
-BEGIN
-    CREATE OR REPLACE NETWORK RULE CONFIG.ALLOW_APIS_RULE
-        TYPE       = HOST_PORT
-        MODE       = EGRESS
-        VALUE_LIST = (
-            'api.salesforce.com:443',
-            'login.salesforce.com:443',
-            'api.zendesk.com:443',
-            'api.stripe.com:443',
-            'docs.snowflake.com:443'
-        )
-        COMMENT = 'APIs externas aprovadas pelo consumer no install';
-
-    CREATE EXTERNAL ACCESS INTEGRATION IF NOT EXISTS NEXUS_API_EAI
-        ALLOWED_NETWORK_RULES = (CONFIG.ALLOW_APIS_RULE)
-        ENABLED               = TRUE
-        COMMENT               = 'Integração de acesso externo para Salesforce, Zendesk e Stripe';
-
-    RETURN 'EAI_CREATED';
-EXCEPTION
-    WHEN OTHER THEN
-        RETURN 'EAI_SKIPPED: ' || SQLERRM;
-END;
-$$;
-
+--
+-- REMOVIDO do setup script: "External access is not supported for trial
+-- accounts" é um erro de compilação da própria conta, levantado na fase de
+-- VALIDAÇÃO do setup script (antes de qualquer statement realmente executar)
+-- — não é um erro de runtime, então EXECUTE IMMEDIATE ... EXCEPTION WHEN
+-- OTHER não o captura (tentado e confirmado; a instalação inteira falhava
+-- mesmo com o bloco de tratamento de erro). NEXUS_API_EAI não é referenciada
+-- em nenhum outro lugar deste arquivo. Reintroduzir exige um mecanismo que
+-- verifique a edition/capacidade da conta ANTES de declarar o EAI no script
+-- (ex.: gerar o setup_script.sql condicionalmente no pipeline de release, já
+-- que não há como fazer isso dentro do próprio SQL).
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Sprint 2 — P0: Stored Procedures para as Tasks de refresh automático
 -- churn_model.py e recommendation_model.py chegam ao consumer como parte do
