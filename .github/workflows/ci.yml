@@ -580,6 +580,33 @@ jobs:
           print("Snowflake CLI configured.")
           EOF
 
+      - name: Provisionar warehouse do consumer
+        # O Native App espera que o consumer já tenha NEXUS_COMPUTE_WH provisionado
+        # (setup_script.sql não tem privilégio automático para criar warehouses —
+        # manifest_version 1 não concede privileges: automaticamente, só declara
+        # intenção). Simula esse pré-requisito antes de instalar/atualizar o app.
+        run: |
+          pip install snowflake-connector-python
+          python - <<'EOF'
+          import snowflake.connector, os
+
+          conn = snowflake.connector.connect(
+              account=os.environ["SNOWFLAKE_ACCOUNT"],
+              user=os.environ["SNOWFLAKE_USER"],
+              password=os.environ["SNOWFLAKE_PASSWORD"],
+              role="ACCOUNTADMIN",
+          )
+          conn.cursor().execute("""
+              CREATE WAREHOUSE IF NOT EXISTS NEXUS_COMPUTE_WH
+                  WAREHOUSE_SIZE = 'XSMALL'
+                  AUTO_SUSPEND = 120
+                  AUTO_RESUME = TRUE
+                  INITIALLY_SUSPENDED = TRUE
+          """)
+          conn.close()
+          print("NEXUS_COMPUTE_WH ready.")
+          EOF
+
       - name: Deploy Native App
         # --force: recria o app do zero → re-executa setup_script.sql → schema sempre atualizado
         run: snow app run --connection dev --force
