@@ -3440,5 +3440,5 @@ USING (
            OBJECT_CONSTRUCT('topic', 'urgent_tickets', 'ticket_count_last_seen', 2)
 ) s ON t.memory_id = s.memory_id
 WHEN NOT MATCHED THEN INSERT (memory_id, org_id, user_name, agent_name, session_id, memory_key, memory_value)
-    VALUES (s.memory_id, s.org_id, s.user_name, s.agent_name, s.session_id, s.memory_key, s.memory_value);</new_string>
+    VALUES (s.memory_id, s.org_id, s.user_name, s.agent_name, s.session_id, s.memory_key, s.memory_value);
 
