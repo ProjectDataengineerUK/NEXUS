@@ -1330,22 +1330,34 @@ ALTER TABLE AUDIT.PROMPT_LOG MODIFY COLUMN prompt_text SET MASKING POLICY GOVERN
 -- Sprint 2 — P0: External Access Integration (APIs externas via Native App)
 -- ─────────────────────────────────────────────────────────────────────────────
 
-CREATE OR REPLACE NETWORK RULE CONFIG.ALLOW_APIS_RULE
-    TYPE       = HOST_PORT
-    MODE       = EGRESS
-    VALUE_LIST = (
-        'api.salesforce.com:443',
-        'login.salesforce.com:443',
-        'api.zendesk.com:443',
-        'api.stripe.com:443',
-        'docs.snowflake.com:443'
-    )
-    COMMENT = 'APIs externas aprovadas pelo consumer no install';
+-- Envolvido em bloco de scripting com tratamento de erro porque External Access
+-- Integration não é suportado em contas trial (erro 509009) — sem isso, a
+-- instalação inteira do Native App falharia na validação do setup script.
+EXECUTE IMMEDIATE $$
+BEGIN
+    CREATE OR REPLACE NETWORK RULE CONFIG.ALLOW_APIS_RULE
+        TYPE       = HOST_PORT
+        MODE       = EGRESS
+        VALUE_LIST = (
+            'api.salesforce.com:443',
+            'login.salesforce.com:443',
+            'api.zendesk.com:443',
+            'api.stripe.com:443',
+            'docs.snowflake.com:443'
+        )
+        COMMENT = 'APIs externas aprovadas pelo consumer no install';
 
-CREATE EXTERNAL ACCESS INTEGRATION IF NOT EXISTS NEXUS_API_EAI
-    ALLOWED_NETWORK_RULES = (CONFIG.ALLOW_APIS_RULE)
-    ENABLED               = TRUE
-    COMMENT               = 'Integração de acesso externo para Salesforce, Zendesk e Stripe';
+    CREATE EXTERNAL ACCESS INTEGRATION IF NOT EXISTS NEXUS_API_EAI
+        ALLOWED_NETWORK_RULES = (CONFIG.ALLOW_APIS_RULE)
+        ENABLED               = TRUE
+        COMMENT               = 'Integração de acesso externo para Salesforce, Zendesk e Stripe';
+
+    RETURN 'EAI_CREATED';
+EXCEPTION
+    WHEN OTHER THEN
+        RETURN 'EAI_SKIPPED: ' || SQLERRM;
+END;
+$$;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Sprint 2 — P0: Stored Procedures para as Tasks de refresh automático
