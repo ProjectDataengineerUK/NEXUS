@@ -998,6 +998,24 @@ SELECT
 FROM CORE.TICKETS
 GROUP BY org_id;
 
+-- DT_REVENUE_MOVEMENT precisa ser criada antes da seção "Grants para Application
+-- Roles" mais abaixo, que já a referencia — movida para aqui (junto das outras
+-- Dynamic Tables) para respeitar a ordem de dependência.
+CREATE OR REPLACE DYNAMIC TABLE MART.DT_REVENUE_MOVEMENT
+    TARGET_LAG = '1 hour'
+    WAREHOUSE  = NEXUS_COMPUTE_WH
+    COMMENT    = 'Movimento de receita — New, Expansion, Churn por mês'
+AS
+SELECT
+    org_id,
+    DATE_TRUNC('month', transaction_date)           AS month,
+    transaction_type,
+    COUNT(*)                                        AS transaction_count,
+    SUM(amount)                                     AS total_amount,
+    AVG(amount)                                     AS avg_amount
+FROM CORE.TRANSACTIONS
+GROUP BY org_id, DATE_TRUNC('month', transaction_date), transaction_type;
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Cortex Search Service — AI.DOC_SEARCH
 -- Semantic search over document chunks (used by AI Chat + Document Intelligence)
@@ -1886,23 +1904,10 @@ ALTER TABLE MART.REVENUE_OPPORTUNITY_SCORE
 -- (canônicas, usadas por Home.py / 1_Executive_Command.py / 12_Operations_Intelligence.py
 -- / operations_model.yaml). As definições duplicadas que existiam aqui referenciavam
 -- CORE.CUSTOMERS.churn_risk_score, coluna inexistente, e quebravam o setup_script —
--- foram removidas em vez de recriadas com CREATE OR REPLACE.
+-- foram removidas em vez de recriadas com CREATE OR REPLACE. DT_REVENUE_MOVEMENT foi
+-- movida para perto das outras Dynamic Tables (ver acima) porque os GRANTs na seção
+-- "Grants para Application Roles" a referenciavam antes dela existir.
 -- ─────────────────────────────────────────────────────────────────────────────
-
-CREATE OR REPLACE DYNAMIC TABLE MART.DT_REVENUE_MOVEMENT
-    TARGET_LAG = '1 hour'
-    WAREHOUSE  = NEXUS_COMPUTE_WH
-    COMMENT    = 'Movimento de receita — New, Expansion, Churn por mês'
-AS
-SELECT
-    org_id,
-    DATE_TRUNC('month', transaction_date)           AS month,
-    transaction_type,
-    COUNT(*)                                        AS transaction_count,
-    SUM(amount)                                     AS total_amount,
-    AVG(amount)                                     AS avg_amount
-FROM CORE.TRANSACTIONS
-GROUP BY org_id, DATE_TRUNC('month', transaction_date), transaction_type;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Sprint 2 — P1: Agent-specific roles (RBAC granular por agente)
