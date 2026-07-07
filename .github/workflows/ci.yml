@@ -650,6 +650,46 @@ jobs:
         # --force: recria o app do zero → re-executa setup_script.sql → schema sempre atualizado
         run: snow app run --connection dev --force
 
+      - name: Upload semantic models para o stage do Native App instalado
+        # BUG CORRIGIDO: o step "Upload YAML configs" do job deploy-dev faz PUT em
+        # @NEXUS_APP.CORE.SEMANTIC_STAGE — o banco do path de deploy DIRETO, não a
+        # aplicação instalada (NEXUS_AI_DATAOPS_TEST). CORE.SEMANTIC_STAGE existe
+        # dentro da APPLICATION (criado pelo setup_script.sql), é um objeto
+        # totalmente separado do banco NEXUS_APP, e nunca era populado — causando
+        # "File nexus_revenue.yaml not found in stage CORE.SEMANTIC_STAGE" ao usar
+        # Cortex Analyst/Agents dentro do Native App. scripts/upload_semantic_models.sh
+        # tem o mesmo problema (também aponta para NEXUS_APP) e nunca era chamado
+        # pelo CI. PUT direto na application, endereçada como <app_name>.<schema>.<stage>.
+        run: |
+          pip install snowflake-connector-python
+          python - <<'EOF'
+          import glob, os
+          import snowflake.connector
+
+          conn = snowflake.connector.connect(
+              account=os.environ["SNOWFLAKE_ACCOUNT"],
+              user=os.environ["SNOWFLAKE_USER"],
+              password=os.environ["SNOWFLAKE_PASSWORD"],
+              role="ACCOUNTADMIN",
+          )
+          cs = conn.cursor()
+          stage = "@NEXUS_AI_DATAOPS_TEST.CORE.SEMANTIC_STAGE"
+
+          yaml_files = sorted(glob.glob("snowflake/cortex/semantic_models/*.yaml"))
+          for path in yaml_files:
+              fname = os.path.basename(path)
+              cs.execute(
+                  f"PUT file://{path} {stage}/{fname} "
+                  "OVERWRITE = TRUE AUTO_COMPRESS = FALSE"
+              )
+              print(f"Uploaded {fname} to {stage}.")
+
+          cs.execute(f"LIST {stage}")
+          for row in cs.fetchall():
+              print(" ", row[0])
+          conn.close()
+          EOF
+
   deploy-prod:
     name: "Deploy artefatos (prod)"
     runs-on: ubuntu-latest
