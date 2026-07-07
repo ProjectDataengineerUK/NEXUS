@@ -671,6 +671,13 @@ jobs:
               user=os.environ["SNOWFLAKE_USER"],
               password=os.environ["SNOWFLAKE_PASSWORD"],
               role="ACCOUNTADMIN",
+              # PUT falhou 2x com "254007: certificate is revoked or could not
+              # be validated (storage.googleapis.com)" mesmo com
+              # SF_OCSP_FAIL_OPEN=true no job — esse env var só ajuda quando o
+              # OCSP é inalcançável, não quando ele responde "revoked". Mesmo
+              # insecure_mode já aceito no config.toml do snow CLI (job
+              # "Configurar conexão" acima) — ver TODO(security) lá.
+              insecure_mode=True,
           )
           cs = conn.cursor()
           stage = "@NEXUS_AI_DATAOPS_TEST.CORE.SEMANTIC_STAGE"
