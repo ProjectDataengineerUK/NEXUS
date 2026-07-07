@@ -296,12 +296,11 @@ elif admin_tab == "📋 Audit Log":
             SELECT
                 created_at,
                 user_name,
-                user_role,
+                role_name,
                 action_type,
-                entity_type,
-                entity_id,
-                status,
-                external_system
+                object_type,
+                object_id,
+                details
             FROM AUDIT.ACTION_LOG
             WHERE org_id = '{ORG_ID}'
               AND created_at >= DATEADD('day', -{days_back}, CURRENT_TIMESTAMP())
