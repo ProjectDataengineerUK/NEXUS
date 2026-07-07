@@ -1,5 +1,7 @@
 # NEXUS AI DataOps — Guia de Deploy CI/CD
 
+> ⚠️ Este guia foi escrito quando o deploy Snowflake vivia num workflow separado (`02-deploy-snowflake.yml`). Essa lógica foi desde então incorporada aos jobs `deploy-dev` / `native-app-dev` / `deploy-prod` dentro de `ci.yml`. Estrutura abaixo atualizada — ver `.github/workflows/ci.yml` como fonte de verdade.
+
 ## Arquitetura do pipeline
 
 ```
@@ -9,9 +11,11 @@ GitHub Push/PR
       │                         Plan (PR) → Apply dev (merge main)
       │                         Apply prod (git tag v*.*.*)
       │
-      ├── merge main    ──►  02-deploy-snowflake.yml (triggered by workflow_run)
-      │                         Upload YAML + Python + SQL para Snowflake Stages
-      │                         Executa SP_RUN_CHURN_PIPELINE('full')
+      ├── push/PR       ──►  ci.yml
+      │                         lint-and-test → dbt-compile
+      │                         deploy-dev (push main): upload artefatos + roda snowflake/setup/*.sql
+      │                         native-app-dev (push main): snow app run --force + grants + upload semantic models
+      │                         deploy-prod (workflow_dispatch manual): scripts/deploy_snowflake.sh
       │
       ├── diário 04h    ──►  03-dbt.yml (cron)
       │                         dbt deps → run → test → source freshness
@@ -167,7 +171,8 @@ git tag v1.1.0 && git push --tags
 ```
 .github/workflows/
 ├── 01-terraform.yml          # Plan (PR) + Apply (merge/tag)
-├── 02-deploy-snowflake.yml   # Upload artefatos + run SQL
+├── ci.yml                    # lint-and-test, dbt-compile, deploy-dev,
+│                              # native-app-dev, deploy-prod (jobs no mesmo arquivo)
 ├── 03-dbt.yml                # dbt run + test (daily + manual)
 └── 04-release-native-app.yml # Package + release (tags)
 
@@ -182,14 +187,16 @@ terraform/
 │       ├── versions.tf
 │       └── backend.hcl       # bucket GCS + prefix prod
 └── modules/
-    ├── databases/            # DB + schemas (7 schemas)
-    ├── warehouses/           # 5 warehouses com auto-suspend
+    ├── databases/            # DB + schemas
+    ├── warehouses/           # warehouses com auto-suspend
     ├── rbac/                 # roles + grants hierárquicos
-    └── security/             # masking policies + RAP
+    ├── security/             # masking policies + RAP
+    ├── monitoring/
+    └── app/
 
 scripts/
 ├── bootstrap_gcp.sh          # cria GCS bucket + SA + Workload Identity (uma vez)
-└── deploy_snowflake.sh       # deploy manual (sem CI/CD)
+└── deploy_snowflake.sh       # usado pelo job deploy-prod (workflow_dispatch manual)
 ```
 
 ---
@@ -205,7 +212,7 @@ SNOWFLAKE_ACCOUNT deve ser no formato: orgname-accountname
 ### dbt falha com "Object does not exist"
 ```bash
 # Garantir que os SQL scripts rodaram antes do dbt
-# Workflow 02 deve concluir antes do 03
+# O job deploy-dev (dentro de ci.yml) deve concluir antes do 03-dbt.yml
 ```
 
 ### Native App falha no install

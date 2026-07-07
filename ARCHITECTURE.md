@@ -89,7 +89,7 @@ flowchart TB
             AUDIT_T["Audit Tables\nACTION_LOG\nACCESS_LOG\nCORTEX_ANALYST_LOG\nAGENT_CHAT_LOG"]
         end
 
-        subgraph STREAMLIT["💻 Streamlit in Snowflake (8 páginas)"]
+        subgraph STREAMLIT["💻 Streamlit in Snowflake (14 páginas)"]
             direction LR
             P1["🏠 Home\nExecutive Dashboard"]
             P2["📡 Executive Command\nKPIs · Alertas · Mapa"]
@@ -109,8 +109,8 @@ flowchart TB
     end
 
     subgraph DEVOPS["🔧 DevOps / IaC"]
-        TF["Terraform\n4 módulos:\ndatabases · warehouses\nrbac · security"]
-        GHA["GitHub Actions\n(planejado)\nCI/CD · deploy"]
+        TF["Terraform\n6 módulos:\ndatabases · warehouses · rbac\nsecurity · monitoring · app"]
+        GHA["GitHub Actions\nlint/test · terraform · dbt\ndeploy-dev · native-app-dev · release"]
         DBT["dbt Core\nstaging → intermediate → marts\nSnowflake adapter"]
     end
 
@@ -353,8 +353,8 @@ NEXUS_AI_DATAOPS_PKG      ──►   NEXUS_AI_DATAOPS
       ├─ manifest.yml            │   NEXUS_ADMIN
       ├─ setup_script.sql        │   NEXUS_ANALYST
       └─ streamlit/              │   NEXUS_VIEWER
-                                 ├─ Schemas (CORE/MART/AI/AUDIT)
-                                 ├─ Streamlit App (10 páginas)
+                                 ├─ Schemas (CORE/MART/AI/AUDIT/GOVERNANCE/CONFIG)
+                                 ├─ Streamlit App (14 páginas)
                                  └─ Cortex integrations
                                     (dados nunca saem do
                                      account do cliente)
@@ -362,17 +362,21 @@ NEXUS_AI_DATAOPS_PKG      ──►   NEXUS_AI_DATAOPS
 
 ---
 
-## Status atual — Gaps críticos (2026-06-19)
+## Status atual — Gaps conhecidos
 
-| Prioridade | Gap | Bloqueio |
+> ⚠️ Esta seção foi originalmente escrita em 2026-06-19 e ficou defasada rápido — vários P0 daquela lista já foram resolvidos pelos commits seguintes. Tabela abaixo atualizada para refletir o estado real; ver [`README.md`](README.md#known-limitations) para a lista viva.
+
+| Prioridade | Gap | Status |
 |---|---|---|
-| **P0** | `manifest.yml` sem `references:` | Consumer não mapeia suas tabelas na instalação |
-| **P0** | Row Access Policy não criada no Native App | Multi-tenancy é estrutural, sem isolamento de runtime |
-| **P0** | External Access Integration inativo | Pipelines de ingestão não funcionam no Native App |
-| **P1** | Zero Airflow DAGs | Ingestão automática não existe |
-| **P1** | KBS (8 Knowledge Bases) ausente | Camada de conhecimento não implementada |
-| **P1** | Dynamic Tables fora do `setup_script` | Consumer não recebe MART atualizado automaticamente |
-| **P2** | External Stages S3/Azure/GCS ausentes | Consumers com data lakes não conseguem conectar |
+| ~~**P0**~~ | `manifest.yml` sem `references:` | ✅ Resolvido — `manifest.yml` já declara `references:` (customer_table, transactions_table, events_table) com `register_callback: core.register_reference` |
+| ~~**P0**~~ | Row Access Policy não criada no Native App | ✅ Resolvido — `GOVERNANCE.RAP_ORG_ISOLATION` ativa no `setup_script.sql`, incluindo fix para não bloquear refresh de Dynamic Tables (usuário SYSTEM) |
+| **P0** | External Access Integration inativo | Ainda pendente — pipelines de ingestão externa não rodam de dentro do Native App |
+| **P1** | Zero Airflow DAGs | ✅ Resolvido — DAGs para Salesforce, Zendesk, Stripe, SAP, Oracle, HubSpot + kbs_refresh existem em `airflow/dags/`, rodando do lado do provider (fora do Native App); sem trigger automático além de execução manual |
+| **P1** | KBS (8 Knowledge Bases) ausente | Parcial — `pipelines/kbs/` e `KBS.KB_SEARCH_SERVICE` (Cortex Search) implementados; cobertura das 8 KBs planejadas não confirmada |
+| **P1** | Dynamic Tables fora do `setup_script` | ✅ Resolvido — Dynamic Tables do MART fazem parte do `setup_script.sql` |
+| **P2** | External Stages S3/Azure/GCS ausentes | Ainda pendente — ver `CLOUD_STRATEGY.md` |
+| **P0 (novo)** | Testes de asserção SQL não passam de forma confiável | `tests/sql/*.sql` roda em CI com `continue-on-error: true`; bugs conhecidos em views de `INFORMATION_SCHEMA` e sintaxe `CALL CORE.ASSERT(...)` |
+| **P1 (novo)** | CI usa `ACCOUNTADMIN` + senha + `insecure_mode=true` | Débito técnico documentado inline em `.github/workflows/ci.yml`; não é key-pair nem least-privilege |
 
-> Ver análise completa: `.claude/sdd/reports/GAP_ANALYSIS_2026-06-19.md`
+> Ver análise histórica: `.claude/sdd/reports/GAP_ANALYSIS_2026-06-19.md` (mantida como registro, não como fonte de verdade atual)
 > Ver estratégia de cloud: `CLOUD_STRATEGY.md`

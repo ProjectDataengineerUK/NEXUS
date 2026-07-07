@@ -1,6 +1,8 @@
 # NEXUS AI DataOps
 
 > Plataforma horizontal de IA + Dados nativa em Snowflake — um "Enterprise AI Command Center" que transforma o Snowflake de cada cliente em um sistema inteligente de decisão, governança, automação e geração de receita. Distribuído via Snowflake Native App, sem mover dados para fora do ambiente do cliente. Foca em Customer & Revenue Intelligence como ponto de entrada, com expansão para Risk, Supply Chain, Compliance e Operations por packs verticais (financeiro, varejo, saúde, telecom, indústria, hotelaria, SaaS, automotivo).
+>
+> **Status:** MVP em hardening ativo — não é mais fase de conceito. Ver [`README.md`](README.md) para o estado real (features, quick start, limitações conhecidas).
 
 ---
 
@@ -22,33 +24,57 @@
 
 ```
 NEXUS/
-├── CONTEXT.md          ← Conceito completo, roadmap e arquitetura (ChatGPT export)
+├── snowflake/           ← Native App: setup scripts (27), cortex (agents/semantic models/search), ML models, vertical packs
+├── app/streamlit/        ← UI Streamlit-in-Snowflake (14 páginas)
+├── dbt/                  ← dbt Core: staging → intermediate → marts
+├── airflow/               ← DAGs de ingestão do lado do provider (Salesforce, Zendesk, Stripe, SAP, Oracle, HubSpot)
+├── terraform/             ← IaC da infra do provider (databases, warehouses, rbac, security, monitoring)
+├── api/                   ← FastAPI standalone (webhooks, integrações externas)
+├── pipelines/kbs/         ← Pipeline de Knowledge Base Search
+├── tests/                 ← pytest (Python) + asserções SQL
+├── .github/workflows/     ← CI/CD: lint/test, terraform, dbt, deploy + release do Native App
+├── CONTEXT.md             ← Conceito completo, roadmap e arquitetura (ChatGPT export)
+├── ARCHITECTURE.md        ← Arquitetura técnica, diagramas, sprints
+├── DEPLOYMENT.md          ← Guia de CI/CD e troubleshooting
+├── CLOUD_STRATEGY.md      ← Estratégia multi-cloud
 └── .claude/
     ├── settings.json
-    └── hooks/
+    ├── hooks/
+    └── sdd/               ← Artefatos Spec-Driven Development (brainstorm/define/design/build/ship)
 ```
 
-> ⚠️ Projeto em fase de conceito — sem código implementado ainda. A estrutura planejada está documentada em `CONTEXT.md` (seção 20).
+> Ver [`README.md`](README.md) para features, quick start e limitações conhecidas — este arquivo cobre convenções para agentes trabalhando no repo.
 
 ## Arquivos-chave
 
 | Arquivo | Função |
 |---------|--------|
-| `CONTEXT.md` | Conceito completo do produto: ICP, módulos, arquitetura técnica, modelos de dados, roadmap, pricing, GTM e estrutura de código planejada |
+| `README.md` | Estado real do projeto: features, quick start, arquitetura, limitações conhecidas |
+| `CONTEXT.md` | Conceito completo do produto: ICP, módulos, roadmap, pricing, GTM |
+| `ARCHITECTURE.md` | Arquitetura técnica detalhada, diagramas, sprints implementados |
+| `snowflake.yml` | Definição do Native App para o Snowflake CLI (`snow app run`) |
 
 ## Convenções
 
-- **Linter:** não configurado (projeto sem código ainda)
-- **Formatter:** não configurado
-- **Testes:** não configurado
+- **Linter:** `ruff` (`ruff check app/streamlit/ snowflake/models/ snowflake/pipelines/ --select E,F,W,I --ignore E501`)
+- **SAST:** `bandit` (não bloqueante em CI)
+- **Formatter:** não configurado explicitamente (ruff cobre parte disso)
+- **Testes:** `pytest` (`tests/python/`, gate de cobertura 50% sobre `snowflake/models`), asserções SQL em `tests/sql/` (ainda não passam de forma confiável), `dbt test` para os models
 
 ## Como rodar
 
 ```bash
-# Projeto em fase conceitual — sem comandos de execução ainda
-# Próximo passo: criar estrutura base do Snowflake Native App
-# Ver CONTEXT.md seção 33 para o Sprint 1 sugerido
+# Instalar o Native App em dev via Snowflake CLI
+snow app run --connection dev --force
+
+# Rodar testes Python
+pytest tests/python/ -v --cov=snowflake/models --cov-fail-under=50
+
+# Rodar dbt
+cd dbt && dbt deps && dbt run && dbt test
 ```
+
+Ver [`README.md`](README.md#quick-start) para o guia completo de setup.
 
 ---
 
