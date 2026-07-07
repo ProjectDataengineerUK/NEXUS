@@ -64,6 +64,8 @@ Abra o Streamlit `CORE.NEXUS_UI` dentro da aplicação instalada — a página `
 | ------ | ------- |
 | Conceito completo do produto (ICP, verticais, roadmap, pricing, GTM) | [`CONTEXT.md`](CONTEXT.md) |
 | Arquitetura técnica, diagrama, sprints, warehouse sizing | [`ARCHITECTURE.md`](ARCHITECTURE.md) |
+| Slide deck técnico (arquitetura, Cortex Agents, CI/CD) | [`docs/architecture-presentation.html`](docs/architecture-presentation.html) |
+| Diagrama de arquitetura standalone (HTML) | [`docs/architecture-diagram.html`](docs/architecture-diagram.html) |
 | Estratégia multi-cloud (AWS/GCP/Azure) | [`CLOUD_STRATEGY.md`](CLOUD_STRATEGY.md) |
 | Guia de CI/CD, secrets do GitHub, troubleshooting de deploy | [`DEPLOYMENT.md`](DEPLOYMENT.md) |
 | README voltado ao consumer final (Marketplace) | [`snowflake/native_app/readme.md`](snowflake/native_app/readme.md) |

@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NEXUS AI DataOps — Technical Architecture Deck</title>
+<!-- surf-cli unavailable in this environment; using CSS gradients + SVG decoration instead of generated imagery -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  /* ============ THEME: Terminal Mono ============ */
+  :root {
+    --font-body: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+    --font-mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+    --bg: #0a0e14;
+    --surface: #12161e;
+    --surface2: #1a1f2a;
+    --surface-elevated: #222836;
+    --border: rgba(80, 250, 123, 0.08);
+    --border-bright: rgba(80, 250, 123, 0.16);
+    --text: #c8d6e5;
+    --text-dim: #5a6a7a;
+    --accent: #50fa7b;
+    --accent-dim: rgba(80, 250, 123, 0.08);
+    --code-bg: #060a10;
+    --code-text: #c8d6e5;
+    --green: #50fa7b;
+    --green-dim: rgba(80, 250, 123, 0.1);
+    --red: #ff5555;
+    --red-dim: rgba(255, 85, 85, 0.1);
+    --blue: #6ea8ff;
+    --blue-dim: rgba(110, 168, 255, 0.1);
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f4f6f8;
+      --surface: #ffffff;
+      --surface2: #eaecf0;
+      --surface-elevated: #f8f9fa;
+      --border: rgba(0, 80, 40, 0.1);
+      --border-bright: rgba(0, 80, 40, 0.18);
+      --text: #1a2332;
+      --text-dim: #5a6a7a;
+      --accent: #0d7a3e;
+      --accent-dim: rgba(13, 122, 62, 0.08);
+      --code-bg: #1a2332;
+      --code-text: #c8d6e5;
+      --green: #0d7a3e;
+      --green-dim: rgba(13, 122, 62, 0.08);
+      --red: #c0392b;
+      --red-dim: rgba(192, 57, 43, 0.08);
+      --blue: #2563eb;
+      --blue-dim: rgba(37, 99, 235, 0.08);
+    }
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: var(--font-body);
+    color: var(--text);
+    background: var(--bg);
+    overflow: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image: radial-gradient(circle, var(--border) 1px, transparent 1px);
+    background-size: 28px 28px;
+    opacity: 0.5;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ============ DECK ENGINE ============ */
+  .deck {
+    height: 100dvh;
+    overflow-y: auto;
+    scroll-snap-type: y mandatory;
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+    position: relative; z-index: 1;
+  }
+
+  .slide {
+    height: 100dvh;
+    scroll-snap-align: start;
+    overflow: hidden;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: clamp(40px, 6vh, 80px) clamp(40px, 8vw, 120px);
+    isolation: isolate;
+    opacity: 0;
+    transform: translateY(40px) scale(0.98);
+    transition:
+      opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1),
+      transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .slide.visible { opacity: 1; transform: none; }
+
+  .slide .reveal {
+    opacity: 0;
+    transform: translateY(20px);
+    transition:
+      opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1),
+      transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .slide.visible .reveal { opacity: 1; transform: none; }
+  .slide.visible .reveal:nth-child(1) { transition-delay: 0.1s; }
+  .slide.visible .reveal:nth-child(2) { transition-delay: 0.2s; }
+  .slide.visible .reveal:nth-child(3) { transition-delay: 0.3s; }
+  .slide.visible .reveal:nth-child(4) { transition-delay: 0.4s; }
+  .slide.visible .reveal:nth-child(5) { transition-delay: 0.5s; }
+  .slide.visible .reveal:nth-child(6) { transition-delay: 0.6s; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .slide, .slide .reveal { opacity: 1 !important; transform: none !important; transition: none !important; }
+  }
+
+  /* ============ NAV CHROME ============ */
+  .deck-progress {
+    position: fixed; top: 0; left: 0; height: 3px;
+    background: var(--accent); z-index: 100;
+    transition: width 0.3s ease; pointer-events: none;
+  }
+
+  .deck-dots {
+    position: fixed; right: clamp(12px, 2vw, 24px); top: 50%;
+    transform: translateY(-50%); display: flex; flex-direction: column;
+    gap: 8px; z-index: 100; padding: 8px;
+    background: color-mix(in srgb, var(--bg) 60%, transparent 40%);
+    border-radius: 20px;
+    backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+  }
+  .deck-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--text-dim); opacity: 0.3; border: none; padding: 0;
+    cursor: pointer; transition: opacity 0.2s ease, transform 0.2s ease;
+  }
+  .deck-dot:hover { opacity: 0.6; }
+  .deck-dot.active { opacity: 1; transform: scale(1.5); background: var(--accent); }
+
+  .deck-counter {
+    position: fixed; bottom: clamp(12px, 2vh, 24px); right: clamp(12px, 2vw, 24px);
+    font-family: var(--font-mono); font-size: 12px; color: var(--text-dim);
+    z-index: 100; font-variant-numeric: tabular-nums;
+  }
+
+  .deck-hints {
+    position: fixed; bottom: clamp(12px, 2vh, 24px); left: 50%;
+    transform: translateX(-50%); font-family: var(--font-mono);
+    font-size: 11px; color: var(--text-dim); opacity: 0.6; z-index: 100;
+    transition: opacity 0.5s ease; white-space: nowrap;
+  }
+  .deck-hints.faded { opacity: 0; pointer-events: none; }
+
+  /* ============ SHARED SLIDE ELEMENTS ============ */
+  .slide__display {
+    font-size: clamp(40px, 8vw, 96px);
+    font-weight: 400;
+    letter-spacing: -1px;
+    line-height: 1.0;
+    text-wrap: balance;
+  }
+
+  .slide__heading {
+    font-size: clamp(26px, 4.5vw, 44px);
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    line-height: 1.15;
+    text-wrap: balance;
+  }
+
+  .slide__body {
+    font-size: clamp(15px, 2vw, 20px);
+    line-height: 1.65;
+    color: var(--text-dim);
+    text-wrap: pretty;
+  }
+
+  .slide__subtitle {
+    font-family: var(--font-mono);
+    font-size: clamp(12px, 1.5vw, 17px);
+    color: var(--text-dim);
+    letter-spacing: 0.5px;
+  }
+
+  .slide__label {
+    font-family: var(--font-mono);
+    font-size: clamp(10px, 1.2vw, 13px);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--accent);
+    margin-bottom: 12px;
+  }
+  .slide__label::before { content: '// '; opacity: 0.6; }
+
+  .slide__decor { position: absolute; pointer-events: none; z-index: 0; }
+
+  /* ============ TITLE ============ */
+  .slide--title {
+    justify-content: center; align-items: center; text-align: center;
+    background-image: radial-gradient(ellipse at 50% 30%, var(--accent-dim) 0%, transparent 55%);
+  }
+  .slide--title .slide__display { color: var(--accent); }
+
+  /* ============ DIVIDER ============ */
+  .slide--divider { justify-content: center; }
+  .slide--divider .slide__number {
+    font-size: clamp(90px, 20vw, 240px);
+    font-weight: 200; line-height: 0.85; opacity: 0.07;
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -55%);
+    pointer-events: none; font-variant-numeric: tabular-nums;
+    color: var(--accent);
+  }
+
+  /* ============ CONTENT ============ */
+  .slide--content .slide__inner {
+    display: grid; grid-template-columns: 3fr 2fr;
+    gap: clamp(24px, 4vw, 60px); align-items: center; width: 100%;
+  }
+  .slide--content.slide--right .slide__inner { grid-template-columns: 2fr 3fr; }
+  .slide--content.slide--right .slide__inner > *:first-child { order: 2; }
+
+  .slide__bullets { list-style: none; padding: 0; }
+  .slide__bullets li {
+    padding: 9px 0 9px 26px; position: relative;
+    font-size: clamp(15px, 1.9vw, 20px); line-height: 1.55; color: var(--text-dim);
+  }
+  .slide__bullets li::before {
+    content: '›'; position: absolute; left: 0; top: 7px;
+    color: var(--accent); font-weight: 700; font-size: 1.1em;
+  }
+  .slide__bullets li strong { color: var(--text); font-weight: 600; }
+
+  .slide__aside { display: flex; align-items: center; justify-content: center; min-height: 200px; }
+
+  /* ============ SPLIT ============ */
+  .slide--split { padding: 0; }
+  .slide--split .slide__panels { display: grid; grid-template-columns: 1fr 1fr; height: 100%; }
+  .slide--split .slide__panel {
+    padding: clamp(40px, 6vh, 80px) clamp(32px, 4vw, 60px);
+    display: flex; flex-direction: column; justify-content: center;
+  }
+  .slide--split .slide__panel--primary { background: var(--surface); }
+  .slide--split .slide__panel--secondary { background: var(--surface2); display: flex; flex-direction: column; gap: 12px; }
+
+  /* ============ DIAGRAM ============ */
+  .slide--diagram { padding: clamp(24px, 4vh, 48px) clamp(24px, 4vw, 60px); }
+  .slide--diagram .slide__heading { margin-bottom: clamp(8px, 1.5vh, 20px); }
+
+  .mermaid-wrap {
+    position: relative; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 24px; overflow: auto; flex: 1; min-height: 0;
+    display: flex; justify-content: center; align-items: center;
+    scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+    cursor: grab;
+  }
+  .mermaid-wrap.is-panning { cursor: grabbing; user-select: none; }
+  .mermaid-wrap::-webkit-scrollbar { width: 6px; height: 6px; }
+  .mermaid-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  .mermaid-wrap .mermaid { transform-origin: center center; }
+
+  .zoom-controls {
+    position: absolute; top: 8px; right: 8px; display: flex; gap: 2px; z-index: 10;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 2px;
+  }
+  .zoom-controls button {
+    width: 28px; height: 28px; border: none; background: transparent;
+    color: var(--text-dim); font-family: var(--font-mono); font-size: 14px;
+    cursor: pointer; border-radius: 4px; display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s, color 0.15s;
+  }
+  .zoom-controls button:hover { background: var(--border); color: var(--text); }
+
+  .mermaid .nodeLabel { color: var(--text) !important; }
+  .mermaid .edgeLabel { color: var(--text-dim) !important; background-color: var(--bg) !important; }
+  .mermaid .edgeLabel rect { fill: var(--bg) !important; }
+  .slide--diagram .mermaid svg { width: 100% !important; height: auto !important; max-width: 100% !important; }
+  .slide--diagram .mermaid .nodeLabel { font-size: 17px !important; font-family: var(--font-mono) !important; }
+  .slide--diagram .mermaid .edgeLabel { font-family: var(--font-mono) !important; font-size: 13px !important; }
+  .slide--diagram .mermaid .node rect, .slide--diagram .mermaid .node circle, .slide--diagram .mermaid .node polygon { stroke-width: 2px; }
+  .slide--diagram .mermaid .edge-pattern-solid, .slide--diagram .mermaid .edge-pattern-dotted { stroke-width: 2px; }
+
+  /* ============ DASHBOARD ============ */
+  .slide--dashboard .slide__kpis {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(clamp(140px, 20vw, 220px), 1fr));
+    gap: clamp(12px, 2vw, 22px);
+  }
+  .slide__kpi {
+    background: var(--surface); border: 1px solid var(--border); border-top: 3px solid var(--accent);
+    border-radius: 10px; padding: clamp(16px, 3vh, 30px) clamp(16px, 2vw, 22px);
+    min-width: 0; overflow: hidden;
+  }
+  .slide__kpi-val {
+    font-size: clamp(34px, 5.5vw, 58px); font-weight: 700; letter-spacing: -1px;
+    line-height: 1.1; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--accent);
+  }
+  .slide__kpi-label {
+    font-family: var(--font-mono); font-size: clamp(9px, 1.2vw, 12.5px); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 1.3px; color: var(--text-dim); margin-top: 8px;
+  }
+
+  /* ============ TABLE ============ */
+  .slide--table { padding: clamp(24px, 4vh, 48px) clamp(24px, 4vw, 60px); }
+  .table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; flex: 1; min-height: 0; }
+  .table-scroll { overflow-x: auto; }
+  .data-table { width: 100%; border-collapse: collapse; font-size: clamp(13px, 1.6vw, 18px); }
+  .data-table th {
+    background: var(--surface2); font-family: var(--font-mono); font-size: clamp(10px, 1.2vw, 13px);
+    font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--accent);
+    text-align: left; padding: clamp(9px, 1.4vh, 14px) clamp(12px, 1.8vw, 22px);
+    border-bottom: 2px solid var(--border-bright); white-space: nowrap;
+  }
+  .data-table td {
+    padding: clamp(9px, 1.4vh, 14px) clamp(12px, 1.8vw, 22px);
+    border-bottom: 1px solid var(--border); vertical-align: top;
+  }
+  .data-table tbody tr:last-child td { border-bottom: none; }
+  .data-table tbody tr:nth-child(even) { background: var(--surface2); }
+  .data-table tbody tr:hover { background: var(--accent-dim); }
+  .data-table code {
+    font-family: var(--font-mono); font-size: 0.85em; background: var(--accent-dim);
+    color: var(--accent); padding: 1px 6px; border-radius: 3px;
+  }
+  .badge { display: inline-block; font-size: 0.8em; font-weight: 700; padding: 2px 8px; border-radius: 4px; font-family: var(--font-mono); }
+  .badge--ok { background: var(--green-dim); color: var(--green); }
+  .badge--warn { background: var(--red-dim); color: var(--red); }
+
+  /* ============ PIPELINE (CSS, linear flow) ============ */
+  .pipeline { display: flex; align-items: stretch; gap: 0; flex: 1; min-height: 0; margin-top: clamp(12px, 2vh, 24px); }
+  .pipeline__step {
+    flex: 1; background: var(--surface); border: 1px solid var(--border); border-top: 3px solid var(--accent);
+    border-radius: 10px; padding: clamp(14px, 2.5vh, 26px) clamp(12px, 1.5vw, 20px);
+    display: flex; flex-direction: column; min-width: 0; overflow-wrap: break-word;
+  }
+  .pipeline__num { font-size: clamp(10px, 1.2vw, 13px); font-weight: 700; color: var(--accent); letter-spacing: 1px; }
+  .pipeline__name { font-size: clamp(15px, 1.9vw, 21px); font-weight: 700; margin: clamp(4px, 0.8vh, 8px) 0; }
+  .pipeline__desc { font-size: clamp(11px, 1.2vw, 14.5px); color: var(--text-dim); line-height: 1.5; flex: 1; }
+  .pipeline__file {
+    font-size: clamp(9.5px, 1.05vw, 11.5px); color: var(--accent); background: var(--accent-dim);
+    padding: 3px 7px; border-radius: 4px; margin-top: clamp(8px, 1.5vh, 14px); align-self: flex-start;
+    font-family: var(--font-mono);
+  }
+  .pipeline__arrow { display: flex; align-items: center; padding: 0 clamp(3px, 0.4vw, 6px); color: var(--accent); flex-shrink: 0; opacity: 0.5; }
+  @media (max-width: 768px) {
+    .pipeline { flex-direction: column; }
+    .pipeline__arrow { justify-content: center; padding: 4px 0; transform: rotate(90deg); }
+  }
+
+  /* ============ QUOTE ============ */
+  .slide--quote { justify-content: center; align-items: center; text-align: center; padding: clamp(60px, 10vh, 120px) clamp(50px, 10vw, 180px); }
+  .slide__quote-mark {
+    font-size: clamp(70px, 12vw, 160px); line-height: 0.5; opacity: 0.1; font-family: Georgia, serif;
+    pointer-events: none; margin-bottom: -16px; color: var(--accent);
+  }
+  .slide--quote blockquote { font-size: clamp(22px, 3.6vw, 42px); font-weight: 600; line-height: 1.35; font-family: var(--font-mono); }
+  .slide--quote cite {
+    font-family: var(--font-mono); font-size: clamp(11px, 1.4vw, 14px); font-style: normal;
+    margin-top: clamp(16px, 3vh, 32px); display: block; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-dim);
+  }
+
+  /* ============ FULL-BLEED ============ */
+  .slide--bleed { padding: 0; justify-content: flex-end; }
+  .slide__bg { position: absolute; inset: 0; background-size: cover; background-position: center; z-index: 0; }
+  .slide__bg--gradient {
+    background:
+      radial-gradient(ellipse at 30% 20%, rgba(80,250,123,0.16) 0%, transparent 45%),
+      radial-gradient(ellipse at 80% 80%, rgba(110,168,255,0.12) 0%, transparent 50%),
+      linear-gradient(160deg, #060a10 0%, #0a0e14 60%, #0e1420 100%);
+  }
+  .slide__scrim { position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.55) 0%, transparent 60%); z-index: 1; }
+  .slide--bleed .slide__content { position: relative; z-index: 2; padding: clamp(40px, 6vh, 80px) clamp(40px, 8vw, 120px); color: #eef4f0; }
+  .slide--bleed .slide__heading { color: #eef4f0; }
+  .slide--bleed .slide__subtitle { color: rgba(238,244,240,0.7); }
+
+  /* ============ RESPONSIVE ============ */
+  @media (max-height: 700px) {
+    .slide { padding: clamp(24px, 4vh, 40px) clamp(32px, 6vw, 80px); }
+    .slide__display { font-size: clamp(32px, 7vw, 60px); }
+    .slide--divider .slide__number { font-size: clamp(70px, 15vw, 140px); }
+  }
+  @media (max-height: 600px) {
+    .slide__decor { display: none; }
+    .slide--quote { padding: clamp(28px, 5vh, 50px) clamp(36px, 7vw, 90px); }
+    .slide__quote-mark { display: none; }
+  }
+  @media (max-height: 500px) {
+    .slide { padding: clamp(14px, 3vh, 22px) clamp(22px, 5vw, 44px); }
+    .deck-dots { display: none; }
+    .slide__display { font-size: clamp(26px, 6vw, 42px); }
+  }
+  @media (max-width: 768px) {
+    .slide--content .slide__inner { grid-template-columns: 1fr; }
+    .slide--content .slide__aside { display: none; }
+    .slide--split .slide__panels { grid-template-columns: 1fr; }
+    .slide--dashboard .slide__kpis { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
+<body>
+
+<div class="deck">
+
+  <!-- SLIDE 1: TITLE -->
+  <section class="slide slide--title">
+    <svg class="slide__decor" style="top:0;right:0;" width="120" height="120" viewBox="0 0 120 120">
+      <line x1="120" y1="0" x2="120" y2="40" stroke="var(--accent)" stroke-width="2" opacity="0.25"/>
+      <line x1="80" y1="0" x2="120" y2="0" stroke="var(--accent)" stroke-width="2" opacity="0.25"/>
+    </svg>
+    <svg class="slide__decor" style="bottom:0;left:0;" width="120" height="120" viewBox="0 0 120 120">
+      <line x1="0" y1="80" x2="0" y2="120" stroke="var(--accent)" stroke-width="2" opacity="0.25"/>
+      <line x1="0" y1="120" x2="40" y2="120" stroke="var(--accent)" stroke-width="2" opacity="0.25"/>
+    </svg>
+    <div class="reveal">
+      <p class="slide__subtitle" style="margin-bottom:clamp(16px,2vh,32px);">$ enterprise_ai --native --zero-egress</p>
+    </div>
+    <h1 class="slide__display reveal">NEXUS<br>AI DataOps</h1>
+    <div class="reveal">
+      <p class="slide__subtitle" style="margin-top:clamp(16px,2vh,32px);">Enterprise AI Command Center · Snowflake Native App · Technical Architecture</p>
+    </div>
+  </section>
+
+  <!-- SLIDE 2: DIVIDER 01 -->
+  <section class="slide slide--divider" style="background-image:radial-gradient(ellipse at 75% 60%, var(--accent-dim) 0%, transparent 45%);">
+    <span class="slide__number">01</span>
+    <div>
+      <h2 class="slide__heading reveal">O Problema</h2>
+      <p class="slide__subtitle reveal" style="margin-top:12px;">Dado governado, mas não acionado</p>
+    </div>
+  </section>
+
+  <!-- SLIDE 3: CONTENT left-heavy -->
+  <section class="slide slide--content" style="background-image:radial-gradient(ellipse at 15% 85%, var(--accent-dim) 0%, transparent 45%);">
+    <div class="slide__inner">
+      <div>
+        <p class="slide__label reveal">Status quo</p>
+        <h2 class="slide__heading reveal">Ferramentas desconectadas ao redor do dado</h2>
+        <ul class="slide__bullets">
+          <li class="reveal">BI, RPA e "IA pontual" vivem <strong>fora</strong> do Snowflake — cada um com sua cópia de dado</li>
+          <li class="reveal">Governança existe, mas termina na consulta — ninguém age sobre o insight</li>
+          <li class="reveal">Mover dado para fora do perímetro Snowflake é o maior risco de compliance</li>
+          <li class="reveal">Times de Revenue, CS, Risco e Data Eng cada um com seu próprio silo de IA</li>
+        </ul>
+      </div>
+      <div class="slide__aside reveal">
+        <svg viewBox="0 0 160 160" width="160" height="160">
+          <circle cx="80" cy="80" r="58" fill="none" stroke="var(--red)" stroke-width="2" opacity="0.35" stroke-dasharray="3 5"/>
+          <circle cx="45" cy="55" r="14" fill="none" stroke="var(--red)" stroke-width="1.5" opacity="0.5"/>
+          <circle cx="115" cy="55" r="14" fill="none" stroke="var(--red)" stroke-width="1.5" opacity="0.5"/>
+          <circle cx="80" cy="115" r="14" fill="none" stroke="var(--red)" stroke-width="1.5" opacity="0.5"/>
+          <text x="80" y="150" text-anchor="middle" font-family="var(--font-mono)" font-size="11" fill="var(--text-dim)">SILOS DESCONECTADOS</text>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <!-- SLIDE 4: DIVIDER 02 -->
+  <section class="slide slide--divider" style="background-image:radial-gradient(ellipse at 25% 40%, var(--accent-dim) 0%, transparent 45%);">
+    <span class="slide__number">02</span>
+    <div>
+      <h2 class="slide__heading reveal">Arquitetura</h2>
+      <p class="slide__subtitle reveal" style="margin-top:12px;">Tudo dentro do Snowflake do cliente</p>
+    </div>
+  </section>
+
+  <!-- SLIDE 5: DIAGRAM — architecture overview -->
+  <section class="slide slide--diagram">
+    <h2 class="slide__heading reveal">Native App — fluxo de dados e IA</h2>
+    <div class="mermaid-wrap reveal">
+      <div class="zoom-controls">
+        <button onclick="zoomDiagram(this,1.2)" title="Zoom in">+</button>
+        <button onclick="zoomDiagram(this,0.8)" title="Zoom out">&minus;</button>
+        <button onclick="resetZoom(this)" title="Reset">&#8634;</button>
+        <button onclick="openDiagramFullscreen(this)" title="Open full size in new tab">&#x26F6;</button>
+      </div>
+      <pre class="mermaid">
+graph TB
+  CUST["Tabelas do cliente<br/>(manifest references:)"] --> CORE["CORE — Bronze"]
+  CORE --> MART["MART — Silver/Gold<br/>Dynamic Tables + dbt"]
+  MART --> AGENTS["6 Cortex Agents"]
+  CORE -.->|chunks| SEARCH["Cortex Search<br/>3 índices"]
+  MART --> ANALYST["Cortex Analyst<br/>5 semantic models"]
+  AGENTS --> ANALYST
+  AGENTS --> SEARCH
+  AGENTS --> UI["Streamlit UI<br/>14 páginas"]
+  GOV["RBAC + Row Access Policy<br/>isolamento por org_id"] -.->|enforça| CORE
+  GOV -.->|enforça| MART
+
+  classDef ai fill:#50fa7b22,stroke:#50fa7b,stroke-width:2px
+  classDef data fill:#5a6a7a22,stroke:#5a6a7a,stroke-width:2px
+  classDef gov fill:#ff555522,stroke:#ff5555,stroke-width:2px
+  class AGENTS,ANALYST,SEARCH,UI ai
+  class CUST,CORE,MART data
+  class GOV gov
+      </pre>
+    </div>
+  </section>
+
+  <!-- SLIDE 6: SPLIT — medallion layers -->
+  <section class="slide slide--split">
+    <div class="slide__panels">
+      <div class="slide__panel slide__panel--primary">
+        <p class="slide__label reveal">Camadas</p>
+        <h2 class="slide__heading reveal" style="font-size:clamp(20px,3.2vw,32px);">Medallion Architecture</h2>
+        <ul class="slide__bullets" style="margin-top:16px;">
+          <li class="reveal"><strong>Bronze</strong> — CORE: customers, subscriptions, tickets, transactions, documents</li>
+          <li class="reveal"><strong>Silver</strong> — MART/dbt intermediate: métricas por cliente, staging</li>
+          <li class="reveal"><strong>Gold</strong> — MART/AI: CUSTOMER_360, EXECUTIVE_KPIS, churn scores, recomendações</li>
+        </ul>
+      </div>
+      <div class="slide__panel slide__panel--secondary">
+        <p class="slide__label reveal" style="color:var(--blue);">Pipeline</p>
+        <h2 class="slide__heading reveal" style="font-size:clamp(20px,3.2vw,32px);">Nativo + dbt</h2>
+        <ul class="slide__bullets" style="margin-top:16px;">
+          <li class="reveal">Dynamic Tables (refresh automático, nativo Snowflake)</li>
+          <li class="reveal">dbt Core: 16 models — staging → intermediate → marts</li>
+          <li class="reveal">Snowpark ML: churn, forecast, anomaly, recommendation</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- SLIDE 7: DASHBOARD -->
+  <section class="slide slide--dashboard" style="background-image:radial-gradient(ellipse at 70% 25%, var(--accent-dim) 0%, transparent 45%);">
+    <h2 class="slide__heading reveal">Superfície real do produto</h2>
+    <div class="slide__kpis">
+      <div class="slide__kpi reveal"><div class="slide__kpi-val">6</div><div class="slide__kpi-label">Cortex Agents</div></div>
+      <div class="slide__kpi reveal"><div class="slide__kpi-val">5</div><div class="slide__kpi-label">Semantic Models</div></div>
+      <div class="slide__kpi reveal"><div class="slide__kpi-val">3</div><div class="slide__kpi-label">Cortex Search</div></div>
+      <div class="slide__kpi reveal"><div class="slide__kpi-val">14</div><div class="slide__kpi-label">Páginas Streamlit</div></div>
+      <div class="slide__kpi reveal"><div class="slide__kpi-val">27</div><div class="slide__kpi-label">Migrations SQL</div></div>
+      <div class="slide__kpi reveal"><div class="slide__kpi-val">195</div><div class="slide__kpi-label">Commits</div></div>
+    </div>
+  </section>
+
+  <!-- SLIDE 8: TABLE — Cortex Agents -->
+  <section class="slide slide--table">
+    <h2 class="slide__heading reveal">6 Cortex Agents especializados</h2>
+    <div class="table-wrap reveal" style="margin-top:clamp(8px,1.5vh,20px);">
+      <div class="table-scroll">
+        <table class="data-table">
+          <thead><tr><th>Agente</th><th>Público</th><th>Foco</th></tr></thead>
+          <tbody>
+            <tr><td><code>executive_agent</code></td><td>C-level</td><td>Revenue, churn, documentos combinados</td></tr>
+            <tr><td><code>customer_agent</code></td><td>CS / CSM</td><td>Health score, tickets, renovações</td></tr>
+            <tr><td><code>revenue_agent</code></td><td>CRO / RevOps</td><td>ARR/MRR, forecast, upsell</td></tr>
+            <tr><td><code>risk_agent</code></td><td>Legal / Compliance</td><td>Cláusulas contratuais, auditoria</td></tr>
+            <tr><td><code>data_steward_agent</code></td><td>Data Eng / Governance</td><td>Qualidade, lineage, custo, drift</td></tr>
+            <tr><td><code>operations_agent</code></td><td>Operações</td><td>SLA, tickets, saúde operacional</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- SLIDE 9: DIAGRAM — agent tool orchestration -->
+  <section class="slide slide--diagram">
+    <h2 class="slide__heading reveal">Orquestração de tools — Executive Agent</h2>
+    <div class="mermaid-wrap reveal">
+      <div class="zoom-controls">
+        <button onclick="zoomDiagram(this,1.2)" title="Zoom in">+</button>
+        <button onclick="zoomDiagram(this,0.8)" title="Zoom out">&minus;</button>
+        <button onclick="resetZoom(this)" title="Reset">&#8634;</button>
+        <button onclick="openDiagramFullscreen(this)" title="Open full size in new tab">&#x26F6;</button>
+      </div>
+      <pre class="mermaid">
+graph LR
+  Q["Pergunta do usuário"] --> AGENT["Cortex Agent<br/>claude-3-5-sonnet"]
+  AGENT --> T1["Tool: revenue_analyst"]
+  AGENT --> T2["Tool: document_search"]
+  T1 --> ANALYST["Cortex Analyst<br/>nexus_revenue.yaml"]
+  T2 --> SEARCH["Cortex Search<br/>DOC_SEARCH"]
+  ANALYST --> SQL["SQL gerado<br/>+ resultado"]
+  SEARCH --> CHUNKS["Chunks relevantes"]
+  SQL --> R["Resposta grounded<br/>+ recomendação"]
+  CHUNKS --> R
+
+  classDef agent fill:#50fa7b22,stroke:#50fa7b,stroke-width:2px
+  classDef tool fill:#5a6a7a22,stroke:#5a6a7a,stroke-width:2px
+  class AGENT agent
+  class T1,T2,ANALYST,SEARCH tool
+      </pre>
+    </div>
+  </section>
+
+  <!-- SLIDE 10: CONTENT right-heavy — multi-tenancy -->
+  <section class="slide slide--content slide--right" style="background-image:radial-gradient(ellipse at 85% 20%, var(--accent-dim) 0%, transparent 45%);">
+    <div class="slide__inner">
+      <div class="slide__aside reveal">
+        <svg viewBox="0 0 160 160" width="150" height="150">
+          <rect x="20" y="20" width="50" height="50" rx="6" fill="none" stroke="var(--accent)" stroke-width="2" opacity="0.6"/>
+          <rect x="90" y="20" width="50" height="50" rx="6" fill="none" stroke="var(--text-dim)" stroke-width="1.5" opacity="0.3" stroke-dasharray="3 4"/>
+          <rect x="20" y="90" width="50" height="50" rx="6" fill="none" stroke="var(--text-dim)" stroke-width="1.5" opacity="0.3" stroke-dasharray="3 4"/>
+          <text x="45" y="50" text-anchor="middle" font-family="var(--font-mono)" font-size="10" fill="var(--accent)">org_id=A</text>
+          <text x="80" y="150" text-anchor="middle" font-family="var(--font-mono)" font-size="10" fill="var(--text-dim)">RAP isolation</text>
+        </svg>
+      </div>
+      <div>
+        <p class="slide__label reveal">Multi-tenancy</p>
+        <h2 class="slide__heading reveal">org_id + Row Access Policy</h2>
+        <ul class="slide__bullets">
+          <li class="reveal"><code style="background:var(--accent-dim);color:var(--accent);padding:1px 6px;border-radius:3px;">org_id</code> presente em toda tabela de dados</li>
+          <li class="reveal"><code style="background:var(--accent-dim);color:var(--accent);padding:1px 6px;border-radius:3px;">CONFIG.ORG_USER_MAP</code> mapeia usuário → organização</li>
+          <li class="reveal"><code style="background:var(--accent-dim);color:var(--accent);padding:1px 6px;border-radius:3px;">GOVERNANCE.RAP_ORG_ISOLATION</code> bloqueia linhas de outra org em runtime</li>
+          <li class="reveal">Sem custom code por cliente — isolamento é estrutural, nativo do Snowflake</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- SLIDE 11: DIVIDER 03 -->
+  <section class="slide slide--divider" style="background-image:radial-gradient(ellipse at 60% 70%, var(--accent-dim) 0%, transparent 45%);">
+    <span class="slide__number">03</span>
+    <div>
+      <h2 class="slide__heading reveal">Como foi construído</h2>
+      <p class="slide__subtitle reveal" style="margin-top:12px;">Multi-agente Claude Code + agentcode</p>
+    </div>
+  </section>
+
+  <!-- SLIDE 12: SPLIT — multi-agent build process -->
+  <section class="slide slide--split">
+    <div class="slide__panels">
+      <div class="slide__panel slide__panel--primary">
+        <p class="slide__label reveal">Processo</p>
+        <h2 class="slide__heading reveal" style="font-size:clamp(20px,3.2vw,32px);">Orquestração de especialistas</h2>
+        <p class="slide__body reveal" style="margin-top:12px;">Em vez de um assistente genérico, o framework <strong style="color:var(--text);">agentcode</strong> roteia cada parte do trabalho para o agente do domínio certo — cada um entrando na etapa certa do fluxo design → implementação → revisão.</p>
+      </div>
+      <div class="slide__panel slide__panel--secondary">
+        <p class="slide__label reveal" style="color:var(--blue);">Agentes usados</p>
+        <ul class="slide__bullets" style="margin-top:4px;">
+          <li class="reveal">snowflake-data-engineer — schemas, Dynamic Tables, RBAC</li>
+          <li class="reveal">snowflake-cortex-expert — Cortex Agents, Semantic Models, Search</li>
+          <li class="reveal">snowflake-governance-expert — RAP, masking, multi-tenancy</li>
+          <li class="reveal">dbt-specialist — staging → intermediate → marts</li>
+          <li class="reveal">security-reviewer / code-reviewer — revisão antes de cada merge</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- SLIDE 13: PIPELINE — CI/CD -->
+  <section class="slide" style="background-image:radial-gradient(ellipse at 50% 15%, var(--accent-dim) 0%, transparent 45%);">
+    <p class="slide__label reveal">CI/CD real</p>
+    <h2 class="slide__heading reveal">Todo push em <code style="font-size:0.7em;background:var(--accent-dim);color:var(--accent);padding:2px 8px;border-radius:4px;">main</code> instala o Native App de verdade</h2>
+    <div class="pipeline reveal">
+      <div class="pipeline__step">
+        <div class="pipeline__num">01</div>
+        <div class="pipeline__name">Lint + Test</div>
+        <div class="pipeline__desc">ruff, gitleaks, bandit, pytest com gate de cobertura</div>
+        <div class="pipeline__file">ci.yml</div>
+      </div>
+      <div class="pipeline__arrow"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M5 12h14m-4-4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+      <div class="pipeline__step">
+        <div class="pipeline__num">02</div>
+        <div class="pipeline__name">dbt compile</div>
+        <div class="pipeline__desc">Parse + compile dos 16 models antes do deploy</div>
+        <div class="pipeline__file">dbt-compile</div>
+      </div>
+      <div class="pipeline__arrow"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M5 12h14m-4-4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+      <div class="pipeline__step">
+        <div class="pipeline__num">03</div>
+        <div class="pipeline__name">deploy-dev</div>
+        <div class="pipeline__desc">Roda os 27 setup scripts contra Snowflake real</div>
+        <div class="pipeline__file">deploy-dev</div>
+      </div>
+      <div class="pipeline__arrow"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M5 12h14m-4-4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+      <div class="pipeline__step">
+        <div class="pipeline__num">04</div>
+        <div class="pipeline__name">native-app-dev</div>
+        <div class="pipeline__desc"><code>snow app run --force</code> + grants + upload semantic models</div>
+        <div class="pipeline__file">native-app-dev</div>
+      </div>
+      <div class="pipeline__arrow"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M5 12h14m-4-4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+      <div class="pipeline__step">
+        <div class="pipeline__num">05</div>
+        <div class="pipeline__name">release (tag)</div>
+        <div class="pipeline__desc">Package versionado → Snowflake Marketplace</div>
+        <div class="pipeline__file">04-release-native-app.yml</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SLIDE 14: DIVIDER 04 -->
+  <section class="slide slide--divider" style="background-image:radial-gradient(ellipse at 30% 30%, var(--red-dim) 0%, transparent 45%);">
+    <span class="slide__number">04</span>
+    <div>
+      <h2 class="slide__heading reveal">Status Real</h2>
+      <p class="slide__subtitle reveal" style="margin-top:12px;">MVP em hardening — não é conceito, não é v1.0</p>
+    </div>
+  </section>
+
+  <!-- SLIDE 15: TABLE — known limitations -->
+  <section class="slide slide--table">
+    <h2 class="slide__heading reveal">Limitações conhecidas</h2>
+    <div class="table-wrap reveal" style="margin-top:clamp(8px,1.5vh,20px);">
+      <div class="table-scroll">
+        <table class="data-table">
+          <thead><tr><th>Área</th><th>Status</th><th>Detalhe</th></tr></thead>
+          <tbody>
+            <tr><td>Testes SQL</td><td><span class="badge badge--warn">Instável</span></td><td><code>continue-on-error: true</code> — ainda não passam de forma confiável</td></tr>
+            <tr><td>Cobertura de testes</td><td><span class="badge badge--warn">Parcial</span></td><td>Gate de 50% cobre só <code>snowflake/models</code></td></tr>
+            <tr><td>Auth do CI</td><td><span class="badge badge--warn">Débito técnico</span></td><td>ACCOUNTADMIN + senha + <code>insecure_mode=true</code></td></tr>
+            <tr><td>Ingestão externa</td><td><span class="badge badge--warn">Manual</span></td><td>Salesforce/Zendesk/Stripe: scripts prontos, sem trigger automático</td></tr>
+            <tr><td>Multi-cloud</td><td><span class="badge badge--warn">Pendente</span></td><td>External Stages Azure/GCS não implementados</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- SLIDE 16: QUOTE -->
+  <section class="slide slide--quote" style="background-image:radial-gradient(ellipse at 50% 50%, var(--accent-dim) 0%, transparent 40%);">
+    <div class="slide__quote-mark reveal">&ldquo;</div>
+    <blockquote class="reveal">80% do trabalho de "IA enterprise" não é o modelo — é a engenharia de dados, segurança e integração ao redor dele.</blockquote>
+    <cite class="reveal">&mdash; lição do build</cite>
+  </section>
+
+  <!-- SLIDE 17: FULL-BLEED — closing -->
+  <section class="slide slide--bleed">
+    <!-- surf unavailable, using CSS gradient fallback -->
+    <div class="slide__bg slide__bg--gradient"></div>
+    <div class="slide__scrim"></div>
+    <div class="slide__content">
+      <p class="slide__label reveal" style="color:rgba(238,244,240,0.6);">Próximos passos</p>
+      <h2 class="slide__heading reveal">External Access Integration · Acceptance Tests · KBS completa</h2>
+      <p class="slide__subtitle reveal" style="margin-top:12px;">README.md e ARCHITECTURE.md atualizados refletem o estado real do repositório</p>
+    </div>
+  </section>
+
+</div><!-- /deck -->
+
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+
+  const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    look: 'classic',
+    themeVariables: {
+      primaryColor: isDark ? '#12161e' : '#eaf7ee',
+      primaryBorderColor: isDark ? '#50fa7b' : '#0d7a3e',
+      primaryTextColor: isDark ? '#c8d6e5' : '#1a2332',
+      secondaryColor: isDark ? '#1a1f2a' : '#eef3fb',
+      secondaryBorderColor: isDark ? '#6ea8ff' : '#2563eb',
+      secondaryTextColor: isDark ? '#c8d6e5' : '#1a2332',
+      tertiaryColor: isDark ? '#2a1414' : '#fdeeee',
+      tertiaryBorderColor: isDark ? '#ff5555' : '#c0392b',
+      tertiaryTextColor: isDark ? '#c8d6e5' : '#1a2332',
+      lineColor: isDark ? '#5a6a7a' : '#5a6a7a',
+      fontSize: '17px',
+      fontFamily: 'var(--font-body)',
+      noteBkgColor: isDark ? '#1a1f2a' : '#eef3fb',
+      noteTextColor: isDark ? '#c8d6e5' : '#1a2332',
+      noteBorderColor: isDark ? '#50fa7b' : '#0d7a3e',
+    }
+  });
+
+  function autoFit() {
+    document.querySelectorAll('.mermaid svg').forEach(function(svg) {
+      svg.removeAttribute('height');
+      svg.style.width = '100%';
+      svg.style.maxWidth = '100%';
+      svg.style.height = 'auto';
+      svg.parentElement.style.width = '100%';
+    });
+    document.querySelectorAll('.slide__kpi-val').forEach(function(el) {
+      if (el.scrollWidth > el.clientWidth) {
+        var s = el.clientWidth / el.scrollWidth;
+        el.style.transform = 'scale(' + s + ')';
+        el.style.transformOrigin = 'left top';
+      }
+    });
+    document.querySelectorAll('.slide--quote blockquote').forEach(function(el) {
+      var len = el.textContent.trim().length;
+      if (len > 100) {
+        var scale = Math.max(0.5, 100 / len);
+        var fs = parseFloat(getComputedStyle(el).fontSize);
+        el.style.fontSize = Math.max(16, Math.round(fs * scale)) + 'px';
+      }
+    });
+  }
+
+  mermaid.run().then(function() {
+    autoFit();
+    new SlideEngine();
+  });
+</script>
+
+<script>
+  var INITIAL_ZOOM=1;
+  function zoomDiagram(b,f){var w=b.closest('.mermaid-wrap');var t=w.querySelector('.mermaid');var c=parseFloat(t.dataset.zoom||INITIAL_ZOOM);var n=Math.min(Math.max(c*f,0.5),5);t.dataset.zoom=n;t.style.zoom=n;}
+  function resetZoom(b){var w=b.closest('.mermaid-wrap');var t=w.querySelector('.mermaid');t.dataset.zoom=INITIAL_ZOOM;t.style.zoom=INITIAL_ZOOM;}
+  function openDiagramFullscreen(b){openMermaidInNewTab(b.closest('.mermaid-wrap'));}
+  function openMermaidInNewTab(w){var svg=w.querySelector('.mermaid svg');if(!svg)return;var clone=svg.cloneNode(true);clone.style.zoom='';clone.style.transform='';var styles=getComputedStyle(document.documentElement);var bg=styles.getPropertyValue('--bg').trim()||'#ffffff';var html='<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Diagram</title><style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:'+bg+';padding:40px;box-sizing:border-box}svg{max-width:100%;max-height:90vh;height:auto}</style></head><body>'+clone.outerHTML+'</body></html>';window.open(URL.createObjectURL(new Blob([html],{type:'text/html'})),'_blank');}
+  document.querySelectorAll('.mermaid-wrap').forEach(function(w){w.addEventListener('wheel',function(e){if(!e.ctrlKey&&!e.metaKey)return;e.preventDefault();var t=w.querySelector('.mermaid');var c=parseFloat(t.dataset.zoom||INITIAL_ZOOM);var f=e.deltaY<0?1.1:0.9;var n=Math.min(Math.max(c*f,0.5),5);t.dataset.zoom=n;t.style.zoom=n;},{passive:false});var sX,sY,sL,sT,sTime,didPan;w.addEventListener('mousedown',function(e){if(e.target.closest('.zoom-controls'))return;w.classList.add('is-panning');sX=e.clientX;sY=e.clientY;sL=w.scrollLeft;sT=w.scrollTop;sTime=Date.now();didPan=false;});window.addEventListener('mousemove',function(e){if(!w.classList.contains('is-panning'))return;var dx=e.clientX-sX,dy=e.clientY-sY;if(Math.abs(dx)>5||Math.abs(dy)>5)didPan=true;w.scrollLeft=sL-dx;w.scrollTop=sT-dy;});window.addEventListener('mouseup',function(){if(!w.classList.contains('is-panning'))return;w.classList.remove('is-panning');if(!didPan&&Date.now()-sTime<300)openMermaidInNewTab(w);});});
+
+  function SlideEngine(){
+    this.deck=document.querySelector('.deck');
+    this.slides=[].slice.call(document.querySelectorAll('.slide'));
+    this.current=0;
+    this.total=this.slides.length;
+    this.buildChrome();
+    this.bindEvents();
+    this.observe();
+    this.update();
+  }
+  SlideEngine.prototype.buildChrome=function(){
+    var bar=document.createElement('div');bar.className='deck-progress';document.body.appendChild(bar);this.bar=bar;
+    var dots=document.createElement('div');dots.className='deck-dots';var self=this;
+    this.slides.forEach(function(_,i){var d=document.createElement('button');d.className='deck-dot';d.title='Slide '+(i+1);d.onclick=function(){self.goTo(i);};dots.appendChild(d);});
+    document.body.appendChild(dots);this.dots=[].slice.call(dots.children);
+    var ctr=document.createElement('div');ctr.className='deck-counter';document.body.appendChild(ctr);this.counter=ctr;
+    var hints=document.createElement('div');hints.className='deck-hints';hints.textContent='← → or scroll to navigate';document.body.appendChild(hints);this.hints=hints;
+    this.hintTimer=setTimeout(function(){hints.classList.add('faded');},4000);
+  };
+  SlideEngine.prototype.bindEvents=function(){
+    var self=this;
+    document.addEventListener('keydown',function(e){
+      if(e.target.closest('.mermaid-wrap,.table-scroll,.code-scroll,input,textarea,[contenteditable]'))return;
+      if(['ArrowDown','ArrowRight',' ','PageDown'].indexOf(e.key)>-1){e.preventDefault();self.next();}
+      else if(['ArrowUp','ArrowLeft','PageUp'].indexOf(e.key)>-1){e.preventDefault();self.prev();}
+      else if(e.key==='Home'){e.preventDefault();self.goTo(0);}
+      else if(e.key==='End'){e.preventDefault();self.goTo(self.total-1);}
+      self.fadeHints();
+    });
+    var tY;
+    this.deck.addEventListener('touchstart',function(e){tY=e.touches[0].clientY;},{passive:true});
+    this.deck.addEventListener('touchend',function(e){var dy=tY-e.changedTouches[0].clientY;if(Math.abs(dy)>50){dy>0?self.next():self.prev();}});
+  };
+  SlideEngine.prototype.observe=function(){
+    var self=this;
+    var obs=new IntersectionObserver(function(entries){entries.forEach(function(entry){if(entry.isIntersecting){entry.target.classList.add('visible');self.current=self.slides.indexOf(entry.target);self.update();}});},{threshold:0.5});
+    this.slides.forEach(function(s){obs.observe(s);});
+  };
+  SlideEngine.prototype.goTo=function(i){this.slides[Math.max(0,Math.min(i,this.total-1))].scrollIntoView({behavior:'smooth'});};
+  SlideEngine.prototype.next=function(){if(this.current<this.total-1)this.goTo(this.current+1);};
+  SlideEngine.prototype.prev=function(){if(this.current>0)this.goTo(this.current-1);};
+  SlideEngine.prototype.update=function(){
+    this.bar.style.width=((this.current+1)/this.total*100)+'%';
+    var c=this.current;this.dots.forEach(function(d,i){d.classList.toggle('active',i===c);});
+    this.counter.textContent=(this.current+1)+' / '+this.total;
+  };
+  SlideEngine.prototype.fadeHints=function(){clearTimeout(this.hintTimer);this.hints.classList.add('faded');};
+</script>
+
+</body>
+</html>
