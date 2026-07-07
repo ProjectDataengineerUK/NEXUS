@@ -623,6 +623,21 @@ jobs:
               print("Granted EXECUTE TASK to NEXUS_AI_DATAOPS_TEST.")
           except Exception as e:
               print(f"Grant skipped (app may not exist yet): {e}")
+
+          try:
+              # SNOWFLAKE.CORTEX_USER não pode ser concedida de dentro do
+              # setup_script.sql (GRANT DATABASE ROLE de fora do app não é
+              # suportado ali — ver comentário em setup_script.sql) — sem isso,
+              # Cortex Agents retorna "Unauthorized to call Cortex Agents. You
+              # must have been granted either the SNOWFLAKE.CORTEX_USER or
+              # SNOWFLAKE.CORTEX_AGENT_USER role".
+              cs.execute(
+                  "GRANT DATABASE ROLE SNOWFLAKE.CORTEX_USER "
+                  "TO APPLICATION ROLE NEXUS_AI_DATAOPS_TEST.NEXUS_ADMIN"
+              )
+              print("Granted SNOWFLAKE.CORTEX_USER to NEXUS_AI_DATAOPS_TEST.NEXUS_ADMIN.")
+          except Exception as e:
+              print(f"Grant skipped (app may not exist yet): {e}")
           conn.close()
           print("NEXUS_COMPUTE_WH ready.")
           EOF

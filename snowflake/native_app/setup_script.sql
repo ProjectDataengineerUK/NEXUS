@@ -261,6 +261,37 @@ EXCEPTION
         RETURN 'SKIPPED: ' || SQLERRM;
 END;
 $$;
+-- Migrations: colunas de categorização/IA adicionadas depois da migração de
+-- contract intelligence acima — ficaram de fora da lista original, causando
+-- "invalid identifier 'D.DOCUMENT_CATEGORY'" em installs antigos onde
+-- CORE.DOCUMENTS já existia (CREATE TABLE IF NOT EXISTS é no-op nesse caso).
+EXECUTE IMMEDIATE $$
+BEGIN
+    ALTER TABLE CORE.DOCUMENTS ADD COLUMN IF NOT EXISTS document_category  VARCHAR(100);
+    RETURN 'OK';
+EXCEPTION
+    WHEN OTHER THEN
+        RETURN 'SKIPPED: ' || SQLERRM;
+END;
+$$;
+EXECUTE IMMEDIATE $$
+BEGIN
+    ALTER TABLE CORE.DOCUMENTS ADD COLUMN IF NOT EXISTS document_summary   TEXT;
+    RETURN 'OK';
+EXCEPTION
+    WHEN OTHER THEN
+        RETURN 'SKIPPED: ' || SQLERRM;
+END;
+$$;
+EXECUTE IMMEDIATE $$
+BEGIN
+    ALTER TABLE CORE.DOCUMENTS ADD COLUMN IF NOT EXISTS extracted_fields   VARIANT;
+    RETURN 'OK';
+EXCEPTION
+    WHEN OTHER THEN
+        RETURN 'SKIPPED: ' || SQLERRM;
+END;
+$$;
 
 CREATE TABLE IF NOT EXISTS CORE.CONTRACTS (
     contract_id    VARCHAR(36)   NOT NULL DEFAULT UUID_STRING(),

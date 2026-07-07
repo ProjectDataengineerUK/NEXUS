@@ -71,13 +71,16 @@ with col_risk:
         ORDER BY dth.churn_probability DESC
     """)
 
-    for _, r in risk_df.iterrows():
+    for idx, r in risk_df.reset_index(drop=True).iterrows():
         prob = f"{r['CHURN_PROB'] * 100:.0f}%"
         arr  = f"${r['ARR_RISK'] / 1_000:.0f}K"
         tix  = int(r["OPEN_TICKETS"] or 0)
         with st.expander(f"🔴 {r['CUSTOMER']} · Churn {prob} · ARR {arr}"):
             st.markdown(f"**Segmento:** {r['SEGMENT']}  \n**Tickets abertos:** {tix}  \n**Ação:** {r['ACTION']}")
-            st.button("Escalar →", key=f"risk_esc_{r['CUSTOMER']}")
+            # key inclui o índice da linha — nomes de cliente podem se repetir
+            # (ex: mascarados por PII masking policy), causando DuplicateWidgetID
+            # se usados sozinhos como key.
+            st.button("Escalar →", key=f"risk_esc_{idx}_{r['CUSTOMER']}")
 
 
 with col_opp:
@@ -100,12 +103,15 @@ with col_opp:
         LIMIT 5
     """)
 
-    for _, r in opp_df.iterrows():
+    for idx, r in opp_df.reset_index(drop=True).iterrows():
         impact = f"${r['IMPACT'] / 1_000:.0f}K"
         conf   = f"{r['CONFIDENCE'] * 100:.0f}%"
         with st.expander(f"🟢 {r['CUSTOMER']} · {r['TYPE']} · Impacto {impact}"):
             st.markdown(f"**Segmento:** {r['SEGMENT']}  \n**Confiança:** {conf}  \n{r['REC']}")
-            st.button("Propor →", key=f"opp_{r['CUSTOMER']}_{r['TYPE']}")
+            # key inclui o índice — nome de cliente + tipo de recomendação
+            # não são garantidamente únicos (2 recomendações 'upsell' para o
+            # mesmo cliente, ou nomes mascarados colidindo).
+            st.button("Propor →", key=f"opp_{idx}_{r['CUSTOMER']}_{r['TYPE']}")
 
 st.divider()
 

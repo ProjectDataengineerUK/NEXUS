@@ -275,21 +275,30 @@ else:
 
         with st.chat_message("assistant"):
             with st.spinner("Agente processando… consultando dados e documentos…"):
-                # Monta payload de mensagens para o agente
+                # Monta payload de mensagens para o agente — "content" precisa ser
+                # uma lista de content blocks ([{"type": "text", "text": ...}]),
+                # não uma string simples (erro observado: "Cannot deserialize
+                # value of type java.util.ArrayList ... from String value").
                 agent_messages = [
                     {
                         "role": "system",
-                        "content": (
-                            "Você é o Executive AI Agent da NEXUS AI DataOps. "
-                            "Responda com dados precisos, cite fontes e termine com uma recomendação de ação. "
-                            f"Organização atual: {ORG_ID}. "
-                            "Use os dados disponíveis — não invente números."
-                        ),
+                        "content": [{
+                            "type": "text",
+                            "text": (
+                                "Você é o Executive AI Agent da NEXUS AI DataOps. "
+                                "Responda com dados precisos, cite fontes e termine com uma recomendação de ação. "
+                                f"Organização atual: {ORG_ID}. "
+                                "Use os dados disponíveis — não invente números."
+                            ),
+                        }],
                     }
                 ]
                 for m in st.session_state.agent_history:
                     if m["role"] in ("user", "assistant") and m.get("content"):
-                        agent_messages.append({"role": m["role"], "content": m["content"]})
+                        agent_messages.append({
+                            "role": m["role"],
+                            "content": [{"type": "text", "text": m["content"]}],
+                        })
 
                 result = call_cortex_agent(agent_messages)
 
