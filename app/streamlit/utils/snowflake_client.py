@@ -29,6 +29,28 @@ def run_sql(sql: str) -> list:
     return get_session().sql(sql).collect()
 
 
+@st.cache_data(ttl=600)
+def cortex_search_service_exists(service_name: str) -> bool:
+    """Checks if a Cortex Search Service exists.
+
+    Contas trial/certas regiões podem não ter acesso à função de embedding
+    do Cortex Search — nesse caso a criação do serviço no setup_script.sql
+    é pulada tolerantemente (ver comentário lá) e o serviço nunca existe.
+    Usado para montar tool lists de Cortex Agents sem referenciar um serviço
+    inexistente, o que faria a chamada inteira falhar.
+    """
+    if "." not in service_name:
+        return False
+    schema, name = service_name.rsplit(".", 1)
+    try:
+        rows = get_session().sql(
+            f"SHOW CORTEX SEARCH SERVICES LIKE '{name}' IN SCHEMA {schema}"
+        ).collect()
+        return len(rows) > 0
+    except Exception:
+        return False
+
+
 # ─── REST helpers ─────────────────────────────────────────────────────────────
 #
 # Streamlit rodando DENTRO do Snowflake (Native App/Streamlit-in-Snowflake) não

@@ -11,6 +11,7 @@ from utils.audit_logger import log_analyst_query
 from utils.auth import get_current_role, get_current_user, get_org_id
 from utils.snowflake_client import call_cortex_agent as _call_agent
 from utils.snowflake_client import call_cortex_analyst as _call_analyst
+from utils.snowflake_client import cortex_search_service_exists
 from utils.snowflake_client import run_query as run_sql
 
 st.set_page_config(
@@ -48,19 +49,24 @@ def call_cortex_agent(messages: list[dict]) -> dict:
                 "semantic_model_file": SEMANTIC_MODEL,
             }
         },
-        {
+    ]
+    tool_resources = {
+        "revenue_analyst": {"semantic_model_file": DOMAIN_MODELS["Revenue & Customers"]},
+    }
+    # AI.DOC_SEARCH pode não existir (conta sem acesso a embedding do Cortex
+    # Search — a criação é pulada tolerantemente no setup_script.sql). Referenciar
+    # um serviço inexistente faz a chamada inteira ao agente falhar, então só
+    # incluímos a ferramenta de busca se o serviço realmente existir.
+    if cortex_search_service_exists(DOC_SEARCH_SVC):
+        tools.append({
             "tool_spec": {
                 "type": "cortex_search",
                 "name": "document_search",
                 "service_name": DOC_SEARCH_SVC,
                 "max_results": 4,
             }
-        },
-    ]
-    tool_resources = {
-        "revenue_analyst": {"semantic_model_file": DOMAIN_MODELS["Revenue & Customers"]},
-        "document_search": {"name": DOC_SEARCH_SVC},
-    }
+        })
+        tool_resources["document_search"] = {"name": DOC_SEARCH_SVC}
     return _call_agent(messages, AGENT_MODEL, tools, tool_resources)
 
 
