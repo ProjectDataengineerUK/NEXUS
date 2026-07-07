@@ -685,8 +685,18 @@ jobs:
           yaml_files = sorted(glob.glob("snowflake/cortex/semantic_models/*.yaml"))
           for path in yaml_files:
               fname = os.path.basename(path)
+              # PUT trata tudo depois de "@stage/" como prefixo de DIRETÓRIO,
+              # não como nome de arquivo de destino — sempre acrescenta o
+              # basename do arquivo local por baixo. Colocar "/{fname}" no
+              # destino criou uma subpasta com o nome do arquivo
+              # (nexus_revenue.yaml/nexus_revenue.yaml em vez de
+              # nexus_revenue.yaml na raiz do stage), causando "File
+              # nexus_revenue.yaml not found in stage CORE.SEMANTIC_STAGE"
+              # mesmo com o upload "bem sucedido". Sem sufixo, PUT usa o
+              # nome do arquivo local automaticamente — mesmo padrão do step
+              # "Upload YAML configs" (job deploy-dev) que já funciona.
               cs.execute(
-                  f"PUT file://{path} {stage}/{fname} "
+                  f"PUT file://{path} {stage} "
                   "OVERWRITE = TRUE AUTO_COMPRESS = FALSE"
               )
               print(f"Uploaded {fname} to {stage}.")
