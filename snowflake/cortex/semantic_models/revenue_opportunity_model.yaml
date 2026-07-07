@@ -215,7 +215,7 @@ tables:
 verified_queries:
   - name: pipeline_total_por_tipo
     question: "Qual o pipeline total de oportunidades por tipo?"
-    verified_at: "2026-06-19"
+    verified_at: 1781827200
     sql: |
       SELECT opportunity_type,
              COUNT(*)              AS oportunidades,
@@ -228,7 +228,7 @@ verified_queries:
 
   - name: renovacoes_proximas_60d
     question: "Quais renovações vencem nos próximos 60 dias?"
-    verified_at: "2026-06-19"
+    verified_at: 1781827200
     sql: |
       SELECT customer_name, contract_end_date,
              opportunity_score, estimated_revenue_usd, churn_risk, arr
@@ -240,7 +240,7 @@ verified_queries:
 
   - name: top5_maior_oportunidade
     question: "Quais os 5 clientes com maior score de oportunidade?"
-    verified_at: "2026-06-19"
+    verified_at: 1781827200
     sql: |
       SELECT customer_name, opportunity_type, opportunity_score,
              estimated_revenue_usd, arr, churn_risk
@@ -250,7 +250,7 @@ verified_queries:
 
   - name: movimento_receita_ultimos_6m
     question: "Qual o movimento de receita nos últimos 6 meses?"
-    verified_at: "2026-06-19"
+    verified_at: 1781827200
     sql: |
       SELECT month, transaction_type, transaction_count, total_amount
       FROM NEXUS_APP.MART.DT_REVENUE_MOVEMENT
@@ -259,7 +259,7 @@ verified_queries:
 
   - name: produtos_ativos_catalogo
     question: "Quais produtos estão disponíveis no catálogo?"
-    verified_at: "2026-06-19"
+    verified_at: 1781827200
     sql: |
       SELECT product_name, product_category, unit_price
       FROM NEXUS_APP.CORE.PRODUCTS

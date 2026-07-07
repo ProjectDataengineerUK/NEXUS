@@ -122,7 +122,7 @@ tables:
 verified_queries:
   - name: kpis_hoje
     question: "Quais são os KPIs executivos de hoje?"
-    verified_at: "2026-06-17"
+    verified_at: 1781654400
     sql: |
       SELECT
         total_arr, total_mrr, active_customers, at_risk_customers,
@@ -133,7 +133,7 @@ verified_queries:
 
   - name: tendencia_arr_30d
     question: "Como o ARR evoluiu nos últimos 30 dias?"
-    verified_at: "2026-06-17"
+    verified_at: 1781654400
     sql: |
       SELECT snapshot_date, total_arr, arr_at_risk, at_risk_customers
       FROM NEXUS_APP.MART.EXECUTIVE_KPIS
@@ -142,7 +142,7 @@ verified_queries:
 
   - name: churn_rate_atual
     question: "Qual é a taxa de clientes em risco?"
-    verified_at: "2026-06-17"
+    verified_at: 1781654400
     sql: |
       SELECT
         at_risk_customers,

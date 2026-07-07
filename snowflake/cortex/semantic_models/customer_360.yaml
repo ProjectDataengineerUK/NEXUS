@@ -253,7 +253,7 @@ relationships:
 verified_queries:
   - name: clientes_alto_risco_churn
     question: "Quais clientes têm maior risco de churn?"
-    verified_at: "2026-06-18"
+    verified_at: 1781740800
     sql: |
       SELECT customer_name, segment, churn_probability, arr,
              expected_revenue_at_risk, churn_risk_level, nearest_renewal_date
@@ -265,7 +265,7 @@ verified_queries:
 
   - name: health_score_por_segmento
     question: "Qual o health score médio por segmento?"
-    verified_at: "2026-06-18"
+    verified_at: 1781740800
     sql: |
       SELECT segment,
              ROUND(AVG(health_score), 1)      AS avg_health_score,
@@ -278,7 +278,7 @@ verified_queries:
 
   - name: renovacoes_proximas_90d
     question: "Quais clientes têm renovação nos próximos 90 dias?"
-    verified_at: "2026-06-18"
+    verified_at: 1781740800
     sql: |
       SELECT customer_name, segment, arr, nearest_renewal_date,
              churn_risk_level, health_score
@@ -289,7 +289,7 @@ verified_queries:
 
   - name: total_arr_em_risco
     question: "Qual o total de ARR em risco de churn?"
-    verified_at: "2026-06-18"
+    verified_at: 1781740800
     sql: |
       SELECT
           SUM(expected_revenue_at_risk)                                       AS total_arr_at_risk,
@@ -301,7 +301,7 @@ verified_queries:
 
   - name: recomendacoes_pendentes_por_cliente
     question: "Quais clientes têm recomendações de ação pendentes?"
-    verified_at: "2026-06-18"
+    verified_at: 1781740800
     sql: |
       SELECT c.customer_name, c.segment, c.churn_risk_level,
              COUNT(r.recommendation_id)       AS pending_actions,

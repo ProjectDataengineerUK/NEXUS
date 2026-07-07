@@ -256,7 +256,7 @@ relationships:
 verified_queries:
   - name: tickets_urgentes_abertos
     question: "Quantos tickets urgentes estão abertos?"
-    verified_at: "2026-06-19"
+    verified_at: 1781827200
     sql: |
       SELECT COUNT(*) AS urgent_open_tickets
       FROM NEXUS_APP.CORE.TICKETS
@@ -265,7 +265,7 @@ verified_queries:
 
   - name: volume_tickets_por_status_prioridade
     question: "Qual é o volume de tickets por status e prioridade?"
-    verified_at: "2026-06-19"
+    verified_at: 1781827200
     sql: |
       SELECT status, priority, COUNT(*) AS ticket_count
       FROM NEXUS_APP.CORE.TICKETS
@@ -274,7 +274,7 @@ verified_queries:
 
   - name: interacoes_por_canal_30d
     question: "Quais foram os canais de interação mais usados nos últimos 30 dias?"
-    verified_at: "2026-06-19"
+    verified_at: 1781827200
     sql: |
       SELECT channel,
              COUNT(*)                       AS interaction_count,
@@ -286,7 +286,7 @@ verified_queries:
 
   - name: clientes_criticos_com_tickets
     question: "Quais clientes têm alto risco de churn E tickets abertos?"
-    verified_at: "2026-06-19"
+    verified_at: 1781827200
     sql: |
       SELECT h.name      AS cliente,
              h.risk_level,
@@ -301,7 +301,7 @@ verified_queries:
 
   - name: tempo_medio_resolucao_por_prioridade
     question: "Qual o tempo médio de resolução de tickets por prioridade?"
-    verified_at: "2026-06-19"
+    verified_at: 1781827200
     sql: |
       SELECT priority,
              ROUND(AVG(DATEDIFF('hour', created_at,

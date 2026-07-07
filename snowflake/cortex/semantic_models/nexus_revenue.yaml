@@ -235,7 +235,7 @@ relationships:
 verified_queries:
   - name: arr_por_segmento
     question: "Qual é o ARR total por segmento de cliente?"
-    verified_at: "2025-01-01"
+    verified_at: 1735689600
     sql: |
       SELECT segment, SUM(arr) AS total_arr, COUNT(*) AS customers
       FROM NEXUS_APP.MART.CUSTOMER_360
@@ -245,7 +245,7 @@ verified_queries:
 
   - name: clientes_alto_risco
     question: "Quais clientes estão em alto risco de churn?"
-    verified_at: "2025-01-01"
+    verified_at: 1735689600
     sql: |
       SELECT customer_name, arr, churn_probability, expected_revenue_at_risk, churn_recommended_action
       FROM NEXUS_APP.MART.CUSTOMER_360
@@ -254,7 +254,7 @@ verified_queries:
 
   - name: renovacoes_proximas_90d
     question: "Quais contratos vencem nos próximos 90 dias?"
-    verified_at: "2025-01-01"
+    verified_at: 1735689600
     sql: |
       SELECT customer_name, arr, nearest_renewal_date, churn_risk_level, nps_score
       FROM NEXUS_APP.MART.CUSTOMER_360
@@ -264,7 +264,7 @@ verified_queries:
 
   - name: health_score_medio_por_segmento
     question: "Qual é o health score médio por segmento?"
-    verified_at: "2025-01-01"
+    verified_at: 1735689600
     sql: |
       SELECT segment, ROUND(AVG(health_score), 1) AS avg_health, COUNT(*) AS customers
       FROM NEXUS_APP.MART.CUSTOMER_360
@@ -274,7 +274,7 @@ verified_queries:
 
   - name: receita_em_risco_total
     question: "Qual é o total de ARR em risco?"
-    verified_at: "2025-01-01"
+    verified_at: 1735689600
     sql: |
       SELECT
         SUM(expected_revenue_at_risk) AS total_arr_at_risk,
