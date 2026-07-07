@@ -34,6 +34,34 @@ def _auto_chart(df: pd.DataFrame, question: str) -> None:
         st.bar_chart(df.set_index(cat_cols[0])[num_cols[0]])
 
 
+def _ask_and_append(history: list[dict], question: str, model_file: str) -> None:
+    """Executa a pergunta via Cortex Analyst e adiciona os dois turnos ao histórico."""
+    history.append({"role": "user", "content": question})
+    with st.spinner("Consultando dados…"):
+        result = ask_analyst(question, model_file)
+
+    df = pd.DataFrame()
+    if result.get("sql") and not result.get("error"):
+        try:
+            df = _run_query(result["sql"])
+        except Exception as exc:
+            st.warning(f"SQL gerado mas falhou ao executar: {exc}")
+
+    if result.get("error"):
+        entry = {"role": "assistant", "content": f"❌ {result['error']}"}
+    else:
+        answer = result.get("text") or (f"{len(df)} resultados encontrados." if not df.empty else "Nenhum resultado.")
+        entry = {
+            "role": "assistant",
+            "content": answer,
+            "sql": result.get("sql"),
+            "df": df if not df.empty else None,
+            "latency_ms": result.get("latency_ms"),
+        }
+
+    history.append(entry)
+
+
 def render_analyst_widget(
     model_file: str,
     suggestions: list[str] | None = None,
@@ -51,7 +79,7 @@ def render_analyst_widget(
         cols = st.columns(min(len(suggestions), 3))
         for i, sug in enumerate(suggestions):
             if cols[i % 3].button(sug, key=f"{key_prefix}_sug_{i}"):
-                history.append({"role": "user", "content": sug})
+                _ask_and_append(history, sug, model_file)
                 st.rerun()
 
     for msg in history:
@@ -67,30 +95,7 @@ def render_analyst_widget(
                 st.caption(f"⚡ {msg['latency_ms']}ms")
 
     if question := st.chat_input(placeholder, key=f"{key_prefix}_input"):
-        history.append({"role": "user", "content": question})
-        with st.spinner("Consultando dados…"):
-            result = ask_analyst(question, model_file)
-
-        df = pd.DataFrame()
-        if result.get("sql") and not result.get("error"):
-            try:
-                df = _run_query(result["sql"])
-            except Exception as exc:
-                st.warning(f"SQL gerado mas falhou ao executar: {exc}")
-
-        if result.get("error"):
-            entry = {"role": "assistant", "content": f"❌ {result['error']}"}
-        else:
-            answer = result.get("text") or (f"{len(df)} resultados encontrados." if not df.empty else "Nenhum resultado.")
-            entry = {
-                "role": "assistant",
-                "content": answer,
-                "sql": result.get("sql"),
-                "df": df if not df.empty else None,
-                "latency_ms": result.get("latency_ms"),
-            }
-
-        history.append(entry)
+        _ask_and_append(history, question, model_file)
         st.rerun()
 
     if history:

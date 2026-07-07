@@ -4,9 +4,13 @@ import json
 import time
 
 import pandas as pd
-import requests
 import streamlit as st
 from snowflake.snowpark.context import get_active_session
+
+try:
+    import _snowflake
+except ImportError:
+    _snowflake = None
 
 
 @st.cache_resource
@@ -26,35 +30,41 @@ def run_sql(sql: str) -> list:
 
 
 # ─── REST helpers ─────────────────────────────────────────────────────────────
+#
+# Streamlit rodando DENTRO do Snowflake (Native App/Streamlit-in-Snowflake) não
+# tem `session.connection.rest.token` (o objeto de conexão nesse runtime é um
+# StoredProcRestful, sem esse atributo — isso só existe numa sessão externa do
+# Python Connector). A forma correta e documentada de chamar as REST APIs do
+# Cortex a partir de dentro do Snowflake é via `_snowflake.send_snow_api_request`,
+# conforme o app de exemplo oficial da Snowflake para Cortex Analyst em
+# Streamlit-in-Snowflake (sfguide-getting-started-with-cortex-analyst).
 
-def _rest_headers() -> tuple[str, dict]:
-    session = get_session()
-    token = session.connection.rest.token
-    host = session.connection.host
-    return host, {
-        "Authorization": f'Snowflake Token="{token}"',
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
+def _snow_api_request(path: str, body: dict, timeout_ms: int = 60000) -> dict:
+    """POST autenticado a uma REST API do Snowflake via ponte interna (_snowflake)."""
+    resp = _snowflake.send_snow_api_request(
+        "POST", path, {}, {}, body, None, timeout_ms,
+    )
+    content = json.loads(resp["content"]) if resp.get("content") else {}
+    return {"status": resp["status"], "content": content}
 
 
 # ─── Cortex Analyst ───────────────────────────────────────────────────────────
 
 def call_cortex_analyst(question: str, semantic_model: str) -> dict:
     """Calls Cortex Analyst REST API. Returns {sql, text, error, latency_ms}."""
-    host, headers = _rest_headers()
-    url = f"https://{host}/api/v2/cortex/analyst/message"
     payload = {
         "messages": [{"role": "user", "content": [{"type": "text", "text": question}]}],
         "semantic_model_file": semantic_model,
     }
     t0 = time.time()
     try:
-        resp = requests.post(url, headers=headers, json=payload, timeout=60)
+        resp = _snow_api_request("/api/v2/cortex/analyst/message", payload)
         latency_ms = int((time.time() - t0) * 1000)
-        resp.raise_for_status()
+        if resp["status"] >= 400:
+            msg = resp["content"].get("message", f"HTTP {resp['status']}")
+            return {"sql": None, "text": None, "error": msg, "latency_ms": latency_ms}
         result = {"sql": None, "text": None, "error": None, "latency_ms": latency_ms}
-        for item in resp.json().get("message", {}).get("content", []):
+        for item in resp["content"].get("message", {}).get("content", []):
             if item["type"] == "sql":
                 result["sql"] = item["statement"]
             elif item["type"] == "text":
@@ -72,9 +82,7 @@ def call_cortex_agent(
     tools: list[dict],
     tool_resources: dict,
 ) -> dict:
-    """Calls Cortex Agents REST API (SSE streaming). Returns {text, tool_calls, error}."""
-    host, headers = _rest_headers()
-    url = f"https://{host}/api/v2/cortex/agent:run"
+    """Calls Cortex Agents REST API. Returns {text, tool_calls, error}."""
     payload = {
         "model": model,
         "messages": messages,
@@ -82,15 +90,20 @@ def call_cortex_agent(
         "tool_resources": tool_resources,
     }
     try:
-        resp = requests.post(url, headers=headers, json=payload, timeout=90)
-        resp.raise_for_status()
+        resp = _snow_api_request("/api/v2/cortex/agent:run", payload, timeout_ms=90000)
+        if resp["status"] >= 400:
+            msg = resp["content"].get("message", f"HTTP {resp['status']}")
+            return {"text": None, "tool_calls": [], "error": msg}
+
         full_text, tool_calls = "", []
-        for line in resp.text.splitlines():
-            if not line.startswith("data:"):
-                continue
-            chunk = json.loads(line[5:].strip())
-            delta = chunk.get("choices", [{}])[0].get("delta", {})
-            for item in delta.get("content", []):
+        content = resp["content"]
+        # A resposta pode vir como um único objeto (não-streaming) com
+        # choices[0].message, ou como lista de chunks SSE já decodificados.
+        chunks = content if isinstance(content, list) else [content]
+        for chunk in chunks:
+            choice = (chunk.get("choices") or [{}])[0]
+            delta = choice.get("delta") or choice.get("message") or {}
+            for item in delta.get("content", []) or []:
                 if item.get("type") == "text":
                     full_text += item.get("text", "")
                 elif item.get("type") == "tool_use":
@@ -130,7 +143,14 @@ def cortex_search(
             )
         ) AS results
     """
-    rows = get_session().sql(sql).collect()
+    try:
+        rows = get_session().sql(sql).collect()
+    except Exception as exc:
+        # Cortex Search pode não estar disponível na conta (trial/região) —
+        # mesma classe de restrição já tratada no setup_script.sql para a
+        # criação do serviço. Degrada graciosamente em vez de derrubar a página.
+        st.warning(f"⚠️ Cortex Search indisponível nesta conta: {exc}")
+        return []
     if not rows:
         return []
     raw = rows[0]["RESULTS"]

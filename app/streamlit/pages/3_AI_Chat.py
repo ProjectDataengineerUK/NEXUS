@@ -167,27 +167,7 @@ if chat_mode == "📊 Cortex Analyst":
         "Mostre os 5 clientes com maior receita em risco.",
     ]
 
-    with st.expander("💡 Perguntas sugeridas", expanded=not st.session_state.analyst_history):
-        cols = st.columns(3)
-        for i, sug in enumerate(ANALYST_SUGGESTIONS):
-            if cols[i % 3].button(sug, key=f"asug_{i}"):
-                st.session_state.analyst_history.append({"role": "user", "content": sug})
-                st.rerun()
-
-    # Histórico
-    for msg in st.session_state.analyst_history:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
-            if msg.get("df") is not None and not msg["df"].empty:
-                st.dataframe(msg["df"], hide_index=True, use_container_width=True)
-                auto_chart(msg["df"], msg["content"])
-            if msg.get("sql"):
-                with st.expander("🔍 SQL gerado"):
-                    st.code(msg["sql"], language="sql")
-            if msg.get("latency_ms"):
-                st.caption(f"⚡ {msg['latency_ms']}ms")
-
-    if question := st.chat_input("Pergunte sobre clientes, receita ou churn…"):
+    def process_analyst_question(question: str) -> None:
         st.session_state.analyst_history.append({"role": "user", "content": question})
 
         with st.chat_message("user"):
@@ -239,6 +219,29 @@ if chat_mode == "📊 Cortex Analyst":
 
         st.session_state.analyst_history.append(response_entry)
 
+    with st.expander("💡 Perguntas sugeridas", expanded=not st.session_state.analyst_history):
+        cols = st.columns(3)
+        for i, sug in enumerate(ANALYST_SUGGESTIONS):
+            if cols[i % 3].button(sug, key=f"asug_{i}"):
+                process_analyst_question(sug)
+                st.rerun()
+
+    # Histórico
+    for msg in st.session_state.analyst_history:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+            if msg.get("df") is not None and not msg["df"].empty:
+                st.dataframe(msg["df"], hide_index=True, use_container_width=True)
+                auto_chart(msg["df"], msg["content"])
+            if msg.get("sql"):
+                with st.expander("🔍 SQL gerado"):
+                    st.code(msg["sql"], language="sql")
+            if msg.get("latency_ms"):
+                st.caption(f"⚡ {msg['latency_ms']}ms")
+
+    if question := st.chat_input("Pergunte sobre clientes, receita ou churn…"):
+        process_analyst_question(question)
+
     if st.session_state.analyst_history:
         if st.button("🗑️ Limpar conversa", key="clear_analyst"):
             st.session_state.analyst_history = []
@@ -264,24 +267,7 @@ else:
         "Quais clientes têm SLA breach E risco de churn ao mesmo tempo?",
     ]
 
-    with st.expander("💡 Perguntas sugeridas", expanded=not st.session_state.agent_history):
-        for i, sug in enumerate(AGENT_SUGGESTIONS):
-            if st.button(sug, key=f"agsug_{i}"):
-                st.session_state.agent_history.append({"role": "user", "content": sug})
-                st.rerun()
-
-    # Histórico
-    for msg in st.session_state.agent_history:
-        if msg["role"] == "tool":
-            continue
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
-            if msg.get("tool_calls"):
-                with st.expander(f"🔧 {len(msg['tool_calls'])} ferramenta(s) usada(s)"):
-                    for tc in msg["tool_calls"]:
-                        st.caption(f"**{tc.get('name','tool')}**")
-
-    if question := st.chat_input("Pergunte sobre clientes, documentos ou estratégia…"):
+    def process_agent_question(question: str) -> None:
         st.session_state.agent_history.append({"role": "user", "content": question})
 
         with st.chat_message("user"):
@@ -326,6 +312,26 @@ else:
             "content": answer,
             "tool_calls": tool_calls,
         })
+
+    with st.expander("💡 Perguntas sugeridas", expanded=not st.session_state.agent_history):
+        for i, sug in enumerate(AGENT_SUGGESTIONS):
+            if st.button(sug, key=f"agsug_{i}"):
+                process_agent_question(sug)
+                st.rerun()
+
+    # Histórico
+    for msg in st.session_state.agent_history:
+        if msg["role"] == "tool":
+            continue
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+            if msg.get("tool_calls"):
+                with st.expander(f"🔧 {len(msg['tool_calls'])} ferramenta(s) usada(s)"):
+                    for tc in msg["tool_calls"]:
+                        st.caption(f"**{tc.get('name','tool')}**")
+
+    if question := st.chat_input("Pergunte sobre clientes, documentos ou estratégia…"):
+        process_agent_question(question)
 
     if st.session_state.agent_history:
         if st.button("🗑️ Limpar conversa", key="clear_agent"):

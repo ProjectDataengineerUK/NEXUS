@@ -95,25 +95,7 @@ if tab_choice == "💬 Chat com Documentos":
         "O que acontece se a integração Salesforce falhar?",
     ]
 
-    with st.expander("💡 Perguntas sugeridas", expanded=len(st.session_state.doc_chat_history) == 0):
-        cols = st.columns(2)
-        for i, sug in enumerate(suggestions):
-            if cols[i % 2].button(sug, key=f"sug_{i}"):
-                st.session_state.doc_chat_history.append({"role": "user", "content": sug})
-                st.rerun()
-
-    # Renderiza histórico
-    for msg in st.session_state.doc_chat_history:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
-            if msg.get("sources"):
-                with st.expander(f"📎 {len(msg['sources'])} fonte(s) usadas"):
-                    for src in msg["sources"]:
-                        st.markdown(f"**{src['document_name']}** · {src.get('section_title','—')}")
-                        st.caption(src["chunk_text"][:300] + "…")
-
-    # Input do usuário
-    if question := st.chat_input("Pergunte sobre um documento…"):
+    def process_doc_question(question: str) -> None:
         st.session_state.doc_chat_history.append({"role": "user", "content": question})
 
         with st.chat_message("user"):
@@ -164,6 +146,27 @@ if tab_choice == "💬 Chat com Documentos":
             "content": answer,
             "sources": sources if chunks else [],
         })
+
+    with st.expander("💡 Perguntas sugeridas", expanded=len(st.session_state.doc_chat_history) == 0):
+        cols = st.columns(2)
+        for i, sug in enumerate(suggestions):
+            if cols[i % 2].button(sug, key=f"sug_{i}"):
+                process_doc_question(sug)
+                st.rerun()
+
+    # Renderiza histórico
+    for msg in st.session_state.doc_chat_history:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+            if msg.get("sources"):
+                with st.expander(f"📎 {len(msg['sources'])} fonte(s) usadas"):
+                    for src in msg["sources"]:
+                        st.markdown(f"**{src['document_name']}** · {src.get('section_title','—')}")
+                        st.caption(src["chunk_text"][:300] + "…")
+
+    # Input do usuário
+    if question := st.chat_input("Pergunte sobre um documento…"):
+        process_doc_question(question)
 
     if st.session_state.doc_chat_history:
         if st.button("🗑️ Limpar conversa"):
